@@ -1,5 +1,12 @@
 import { browser } from "$app/environment";
 
+
+export type Meaning = [
+    partOfSpeech: string,
+    definition: string,
+    synonyms: string[],
+    examples: string[]
+];
 export interface Word {
     word: string;
     synonyms: string[];
@@ -9,12 +16,7 @@ export interface Word {
 
 export type Words = Word[];
 
-export type Meaning = [
-    partOfSpeech: string,
-    definition: string,
-    synonyms: string[],
-    examples: string[]
-];
+
 
 export interface LetterStyleSettings {
     randomSize: boolean;
@@ -115,13 +117,11 @@ export class MindDojo {
         lastOutcome: '' as 'success' | 'error' | 'timeout' | ''
     });
 
-
     currentWord: Word | null = $state(null);
     typedWord: string = $state('');
     wordTimerDuration = $state(0);
     wordMaxDuration = $state(0);
     timer: number | null = null;
-
 
 
     constructor(words: Words) {

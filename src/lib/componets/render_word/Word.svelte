@@ -79,14 +79,67 @@
 			/>
 		{/if}
 	{:else}
-		{#each word.word as letter, index}
-			<Letter
-				{letter}
-				letterIndex={index}
-				typedLetter={typedWord.at(index)!}
-				typedLetterIndex={typedWord.length}
-				baseStyle={baseStyles[index]}
-			/>
-		{/each}
+		<div class="relative flex flex-col">
+			<div class="flex">
+				{#each word.word as letter, index}
+					<Letter
+						{letter}
+						letterIndex={index}
+						typedLetter={typedWord.at(index)!}
+						typedLetterIndex={typedWord.length}
+						baseStyle={baseStyles[index]}
+					/>
+				{/each}
+			</div>
+			<div
+				class="absolute bottom-0 left-0 flex w-full translate-y-[110%] place-items-center justify-center align-middle"
+			>
+				<div
+					class="bg-opacity-70 no-scrollbar mx-auto h-fit max-h-[200px] w-full max-w-[400px] overflow-y-scroll rounded-xl bg-neutral-600 p-4 backdrop-blur-sm"
+				>
+					<div class="flex flex-col gap-1 text-neutral-400">
+						{#each word.meanings as [partOfSpeech, definition, synonyms, examples]}
+							<div class="border-b border-neutral-500 py-2 last:border-0">
+								<span
+									class="w-fit rounded-md border border-neutral-500 p-1 px-2 text-xs font-bold text-white"
+								>
+									{partOfSpeech}
+								</span>
+								<p class="mt-1 text-neutral-200">{definition}</p>
+
+								{#if examples.length}
+									<div class="mt-2 flex flex-col flex-wrap">
+										{#each examples as example}
+											<p class="text-sm font-medium text-neutral-300 italic">"{example}"</p>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<!-- Synonyms (per meaning) -->
+							{#if synonyms.length}
+								<div class="mt-2 flex flex-wrap gap-2">
+									{#each synonyms as syn}
+										<span class="rounded-md bg-green-500 p-1 text-sm font-medium text-white"
+											>{syn}</span
+										>
+									{/each}
+								</div>
+							{/if}
+						{/each}
+
+						<!-- Antonyms (global) -->
+						{#if word.antonyms.length}
+							<div class="mt-2 flex flex-wrap gap-2">
+								{#each word.antonyms as ant}
+									<span class="rounded-md bg-red-500 p-1 text-sm font-medium text-white">{ant}</span
+									>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+			</div>
+		</div>
 	{/if}
 </div>

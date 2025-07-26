@@ -34,7 +34,7 @@
 		// Current letter being typed
 		if (letterIndex === typedLetterIndex) {
 			const color = isFullWord
-				? 'text-neutral-900'
+				? 'text-neutral-100'
 				: settings.letterStyle?.randomColor
 					? getRandomColor()
 					: 'text-black';
@@ -50,7 +50,10 @@
 		// Letter has been typed
 		const isCorrect = typedLetter === letter;
 		const color = isCorrect ? (isFullWord ? 'text-green-400' : 'text-neutral-700') : 'text-red-400';
-		const visibility = settings.hideTypedLetter ? 'opacity-0' : 'opacity-40';
+		let visibility = 'opacity-40';
+		if (settings.hideTypedLetter && !isFullWord) {
+			visibility = 'opacity-0';
+		}
 
 		return `${baseClass} ${color} ${visibility}`;
 	}
