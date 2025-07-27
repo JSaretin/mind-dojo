@@ -75,6 +75,8 @@ export class MindDojo {
     wordMaxDuration = $state(0);
     timer: number | null = null;
 
+    savedWords: SavedWord[] = $state([]);
+
 
     constructor(words: Words) {
         this.words = this.shuffle(words);
@@ -82,6 +84,10 @@ export class MindDojo {
         this.database = new SavedWordDB()
         this.loadGameSound()
         this.pickNextWord();
+        setTimeout((async () => {
+            if (!browser) return
+            this.savedWords = await this.database.getAllWords();
+        }).bind(this))
     }
 
     private loadGameSound() {
@@ -233,6 +239,7 @@ export class MindDojo {
                         tag: []
                     }
                 })
+                this.savedWords = await this.database.getAllWords()
             }).bind(this))
         }
 

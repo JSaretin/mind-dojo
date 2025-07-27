@@ -6,10 +6,11 @@
 
 	const { mindDojo, onclose }: { mindDojo: MindDojo; onclose: () => void } = $props();
 
-	let words: SavedWord[] = $state([]);
+	let words: SavedWord[] = $derived(mindDojo.savedWords);
+
 	let searchQuery = $state('');
 	let activeFilter: 'all' | 'starred' | 'journaled' = $state('all');
-	let isLoading = $state(true);
+	let isLoading = $state(false);
 
 	function getFilterredWords() {
 		let result = words;
@@ -68,7 +69,6 @@
 	}
 
 	// Computed filtered and searched words
-	let filteredWords: SavedWord[] = $state([]);
 
 	// Filter button configurations
 	const filterButtons = [
@@ -94,18 +94,6 @@
 		searchQuery = '';
 	}
 
-	async function loadWords() {
-		isLoading = true;
-		try {
-			words = await mindDojo.database.getAllWords();
-		} catch (error) {
-			console.error('Failed to load words:', error);
-			words = [];
-		} finally {
-			isLoading = false;
-		}
-	}
-
 	async function handleWordSave(updatedWord: SavedWord) {
 		try {
 			await mindDojo.database.saveWord(updatedWord);
@@ -124,7 +112,7 @@
 		onclose();
 	}
 
-	onMount(loadWords);
+	let filteredWords: SavedWord[] = $state([]);
 	$effect(() => {
 		filteredWords = getFilterredWords();
 	});

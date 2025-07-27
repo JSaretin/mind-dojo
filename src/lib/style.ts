@@ -1,4 +1,4 @@
-import type { MindDojoSettings } from "./mind-dojo.svelte";
+import type { MindDojoSettings } from "./structure";
 
 export function getRandomColor(): string {
     const colors = [

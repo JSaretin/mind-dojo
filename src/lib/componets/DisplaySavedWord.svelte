@@ -9,9 +9,8 @@
 	let showBack = $state(false);
 	let showMore = $state(false);
 	let showFullJournal = $state(false);
-	let currentDescription = $state(saved.jounal.description ?? '');
-	let currentTags = $state(saved.jounal.tag?.join(', ') ?? '');
-	let editableDiv: HTMLDivElement;
+	let currentDescription = $derived(saved.jounal.description ?? '');
+	let currentTags = $state(saved.jounal.tag.join(','));
 
 	// Calculate journal display properties
 	let journalLines = $derived(currentDescription.split('\n').length);
@@ -35,18 +34,15 @@
 		showFullJournal = !showFullJournal;
 	}
 
-	// Convert HTML to plain text
-	function htmlToText(html: string): string {
-		const tempDiv = document.createElement('div');
-		tempDiv.innerHTML = html;
-		return tempDiv.textContent || tempDiv.innerText || '';
-	}
-
 	async function saveJournal() {
 		// Ensure we save plain text, not HTML
 		// const plainTextDescription = currentDescription;
+		currentDescription = currentDescription.trim();
+		if (currentDescription == '<br>') {
+			currentDescription = '';
+		}
 
-		saved.jounal.description = currentDescription.trim();
+		saved.jounal.description = currentDescription;
 		saved.jounal.tag = currentTags
 			.split(',')
 			.map((tag) => tag.trim())
@@ -225,7 +221,6 @@
 				<h4 class="text-sm font-semibold text-amber-200">Edit Journal Entry</h4>
 
 				<div
-					bind:this={editableDiv}
 					contenteditable
 					class="custom-scrollbar scroll-container max-h-[250px] min-h-[100px] overflow-y-auto rounded border border-neutral-700 bg-neutral-800 p-3 text-sm text-amber-100 outline-none focus:border-amber-500"
 					placeholder="Write your thoughts about this word..."
