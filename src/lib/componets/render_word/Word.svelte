@@ -1,8 +1,7 @@
 <script lang="ts">
-	import type { Word } from '$lib/structure';
+	import type { MindDojoSettings, Word } from '$lib/structure';
 	import { getContext } from 'svelte';
 	import Letter from './Letter.svelte';
-	import type { MindDojoSettings } from '$lib/mind-dojo.svelte';
 	import { getBaseStyle } from '$lib/style';
 	import { getRandomChar } from '$lib';
 

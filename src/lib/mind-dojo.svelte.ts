@@ -1,59 +1,9 @@
 import { browser } from "$app/environment";
-
-
-export type Meaning = [
-    partOfSpeech: string,
-    definition: string,
-    synonyms: string[],
-    examples: string[]
-];
-export interface Word {
-    word: string;
-    synonyms: string[];
-    antonyms: string[];
-    meanings: Meaning[];
-}
-
-export type Words = Word[];
+import { SavedWordDB } from "./database.svelte";
+import type { MindDojoSettings, SavedWord, Word, Words } from "./structure";
 
 
 
-export interface LetterStyleSettings {
-    randomSize: boolean;
-    randomWeight: boolean;   // added
-    randomFont: boolean;
-    randomTransform: boolean; // added
-    randomColor: boolean;
-    letterDisplayDirection: 'left-to-right' | 'center';
-}
-
-export interface VoiceSettings {
-    sayCurrentWord: boolean;
-    focusOnVoice: boolean;
-    focusOnLetter: boolean;
-}
-
-export interface WordMixSettings {
-    includeNumbers: boolean;
-    numberMode: 'smart' | 'random';
-    includeUppercase: boolean;
-    includeLowercase: boolean;
-}
-
-export interface MindDojoSettings {
-    speed: number;
-    sameLetterDelayPercent: number;
-    excludeLetters: string;
-    displayMode: 'letter-by-letter' | 'full-word';
-    letterStyle: LetterStyleSettings;
-    voice: VoiceSettings;
-    wordMix: WordMixSettings;
-    hideProgressBar: boolean;
-    hideTimer: boolean;
-    restartLevelOnError: boolean;
-    showNewWordOnError: boolean;
-    hideTypedLetter: boolean;
-}
 
 
 const defaultSetting: MindDojoSettings = {
@@ -101,6 +51,8 @@ export class MindDojo {
     private words: Words = [];
     private currentIndex: number = 0;
 
+    database: SavedWordDB;
+
     gameSound: {
         win: HTMLAudioElement,
         wrong: HTMLAudioElement
@@ -127,6 +79,7 @@ export class MindDojo {
     constructor(words: Words) {
         this.words = this.shuffle(words);
 
+        this.database = new SavedWordDB()
         this.loadGameSound()
         this.pickNextWord();
     }
@@ -259,19 +212,30 @@ export class MindDojo {
             this.currentIndex = 0;
         }
 
-        // Filter out single-letter words if display direction is 'center'
-        let candidateWords = this.words;
-        if (this.settings.letterStyle?.letterDisplayDirection === 'center') {
-            candidateWords = this.words.filter(w => w.word.length > 1);
-        }
-
-        // If no valid words left (e.g., all were single-letter), fallback to original list
-        if (candidateWords.length === 0) {
-            candidateWords = this.words;
-        }
-
         // Shuffle and pick a word
-        const pickedWord = candidateWords[this.currentIndex % candidateWords.length];
+        const pickedWord = this.words[this.currentIndex]
+
+        if (browser && ((this.settings.displayMode === 'full-word') || (this.settings.letterStyle.letterDisplayDirection === 'left-to-right'))) {
+            // seve current word to indexDB
+            console.log('save word')
+            setTimeout((async () => {
+                this.database.saveWord({
+                    word: pickedWord,
+                    stats: {
+                        correctlyTyped: 0,
+                        lastSeen: 0,
+                        seen: 1,
+                        starred: false,
+                        wronglyTyped: 0
+                    },
+                    jounal: {
+                        description: '',
+                        tag: []
+                    }
+                })
+            }).bind(this))
+        }
+
         this.currentWord = pickedWord;
 
         this.typedWord = '';

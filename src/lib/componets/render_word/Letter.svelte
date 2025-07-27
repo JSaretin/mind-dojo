@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
-	import type { MindDojoSettings } from '$lib/mind-dojo.svelte';
 	import { getRandomColor } from '$lib/style';
 	import { getRandomChar } from '$lib';
+	import type { MindDojoSettings } from '$lib/structure';
 
 	let {
 		letter,

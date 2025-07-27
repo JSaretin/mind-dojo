@@ -1,34 +1,39 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { initializeAudio } from '$lib';
+	import DisplaySavedWords from '$lib/componets/DisplaySavedWords.svelte';
 	import ProgressBar from '$lib/componets/ProgressBar.svelte';
 	import RenderWord from '$lib/componets/render_word/Word.svelte';
 	import Setting from '$lib/componets/Setting.svelte';
 	import Timer from '$lib/componets/Timer.svelte';
-	import { MindDojo, type Words } from '$lib/mind-dojo.svelte';
+	import { MindDojo } from '$lib/mind-dojo.svelte';
+	import type { Words } from '$lib/structure';
 	import { setContext } from 'svelte';
 
 	let { data }: { data: { words: Words } } = $props();
 
+	let showSetting = $state(false);
+	let showWordBank = $state(true);
+	let audioMap = $derived(initializeAudio());
+	let mindDojo: MindDojo = $state(new MindDojo(data.words));
+
+	let allowGame = $derived(!showSetting && !showWordBank);
+
 	const onkeydown = (e: KeyboardEvent) => {
-		if (showSetting) return;
+		if (!allowGame) return;
 		if (!mindDojo) return;
 		mindDojo.onKeyDown(e);
 	};
 	const onkeyup = (e: KeyboardEvent) => {
-		if (showSetting) return;
+		if (!allowGame) return;
 		if (!mindDojo) return;
 		mindDojo.onKeyUp(e);
 	};
 	const onkeypress = (e: KeyboardEvent) => {
-		if (showSetting) return;
+		if (!allowGame) return;
 		if (!mindDojo) return;
 		mindDojo.onKeyPress(e);
 	};
-
-	let showSetting = $state(false);
-	let audioMap = $derived(initializeAudio());
-	let mindDojo: MindDojo = $state(new MindDojo(data.words));
 
 	setContext('mindDojo', mindDojo);
 	setContext('settings', () => mindDojo.settings);
@@ -59,9 +64,18 @@
 	</div>
 {/if}
 
+{#if showWordBank}
+	<DisplaySavedWords
+		{mindDojo}
+		onclose={() => {
+			showWordBank = false;
+		}}
+	/>
+{/if}
+
 <div class="flex h-full w-full place-items-center justify-center align-middle">
 	<button
-		class="fixed top-1 right-2 z-50 cursor-pointer text-neutral-700"
+		class="fixed top-1 right-2 z-30 cursor-pointer text-neutral-700"
 		onclick={toggleSettingPopup}>{showSetting ? 'hide' : 'show'} setting</button
 	>
 	<div class="relative flex flex-col place-items-center justify-center align-middle">
