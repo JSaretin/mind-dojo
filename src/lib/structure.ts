@@ -26,7 +26,8 @@ export interface SavedWord {
     jounal: {
         description: string;
         tag: string[]
-    }
+    };
+    createdAt: number;
 }
 
 
