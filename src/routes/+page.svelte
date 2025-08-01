@@ -118,6 +118,8 @@
 				settings={mindDojo.settings}
 				word={mindDojo.currentWord!}
 				typedWord={mindDojo.typedWord}
+				baseStyles={mindDojo.currentWordStyle}
+				wordTransform={mindDojo.wordTransformStyle}
 			/>
 
 			<!-- Game Stats -->

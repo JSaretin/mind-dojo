@@ -2,6 +2,7 @@ import { browser } from "$app/environment"
 import { getRandomChar, initializeAudio } from "$lib"
 import { SavedWordDB } from "./database.svelte"
 import type { MindDojoSettings, SavedWord, Word, Words } from "./structure"
+import { generateRandomShiftOfWordPosition, getBaseStyle } from "./style"
 
 const defaultSetting: MindDojoSettings = {
     speed: 2,
@@ -73,6 +74,8 @@ export class MindDojo {
     wordTimerDuration = $state(0)
     wordMaxDuration = $state(0)
     timer: number | null = null
+    currentWordStyle: string[] = $state([])
+    wordTransformStyle: string = $state('')
 
     lettersAudio: {
         [k: string]: HTMLAudioElement;
@@ -332,6 +335,12 @@ export class MindDojo {
         });
 
         this.currentWord = pickedWord;
+
+        for (let i = 0; i < pickedWord.word.length; i++) {
+            this.currentWordStyle[i] = getBaseStyle(this.settings);
+        }
+        this.wordTransformStyle = generateRandomShiftOfWordPosition(pickedWord.word, this.settings)
+
         this.typedWord = "";
         this.currentIndex++;
 
