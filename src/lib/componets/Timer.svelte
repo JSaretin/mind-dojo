@@ -9,7 +9,7 @@
 </script>
 
 <div
-	class="font-montserrat absolute -translate-y-[200%] rounded-md p-2 text-lg font-bold transition-colors duration-200 ease-linear"
+	class="font-montserrat rounded-md p-2 text-lg font-bold transition-colors duration-200 ease-linear"
 	class:text-neutral-900={duration > maxDur * 0.6}
 	class:text-yellow-500={duration <= maxDur * 0.6 && duration > maxDur * 0.3}
 	class:text-red-500={duration <= maxDur * 0.3}

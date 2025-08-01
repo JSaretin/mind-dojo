@@ -4,7 +4,8 @@
 	import { onMount } from 'svelte';
 	import DisplaySavedWord from './DisplaySavedWord.svelte';
 
-	const { mindDojo, onclose }: { mindDojo: MindDojo; onclose: () => void } = $props();
+	let { mindDojo, showWordBank = $bindable(true) }: { mindDojo: MindDojo; showWordBank: boolean } =
+		$props();
 
 	let words: SavedWord[] = $derived(mindDojo.savedWords);
 
@@ -109,7 +110,7 @@
 
 	// Placeholder function for close - you'll implement the logic
 	function handleClose() {
-		onclose();
+		showWordBank = false;
 	}
 
 	let filteredWords: SavedWord[] = $state([]);
@@ -119,7 +120,8 @@
 </script>
 
 <div
-	class="fixed inset-y-0 right-0 z-50 w-full max-w-[360px] border-l border-neutral-700 bg-neutral-900 shadow-2xl"
+	class={'fixed inset-y-0 right-0 z-50 w-full max-w-[360px] border-l border-neutral-700 bg-neutral-900 shadow-2xl duration-200 ease-in-out ' +
+		(showWordBank ? '-translate-x-0' : 'translate-x-full')}
 >
 	<div class="flex h-full flex-col">
 		<!-- Header -->
@@ -127,21 +129,6 @@
 			<div class="flex items-center justify-between">
 				<h2 class="text-lg font-bold text-amber-200">Saved Words</h2>
 				<div class="flex items-center gap-2">
-					<button
-						onclick={loadWords}
-						class="rounded p-1 text-amber-400 transition-colors hover:bg-amber-400/10"
-						title="Refresh"
-						aria-label="Refresh"
-					>
-						<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-							/>
-						</svg>
-					</button>
 					<button
 						onclick={handleClose}
 						class="rounded p-1 text-neutral-400 transition-colors hover:bg-red-400/10 hover:text-red-400"

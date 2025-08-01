@@ -53,6 +53,7 @@ export interface WordMixSettings {
     includeLowercase: boolean;
 }
 
+
 export interface MindDojoSettings {
     speed: number;
     sameLetterDelayPercent: number;
@@ -61,9 +62,13 @@ export interface MindDojoSettings {
     letterStyle: LetterStyleSettings;
     voice: VoiceSettings;
     wordMix: WordMixSettings;
+    noFeedbackSound: boolean;
     hideProgressBar: boolean;
     hideTimer: boolean;
     restartLevelOnError: boolean;
     showNewWordOnError: boolean;
     hideTypedLetter: boolean;
+    randomlyMoveWordStarting: boolean;
+    typeRestartLevelOnErrorOnLevelCompletion: boolean;
+
 }

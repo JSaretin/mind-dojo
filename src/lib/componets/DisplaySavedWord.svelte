@@ -202,10 +202,15 @@
 
 			<!-- Stats -->
 			<div
-				class="mt-3 flex justify-between border-t border-neutral-700 pt-2 text-[11px] text-neutral-500"
+				class="mt-4 flex items-center justify-between rounded-md bg-neutral-700/30 p-3 text-sm font-semibold"
 			>
-				<span>Seen: {saved.stats.seen}</span>
-				<span>✓ {saved.stats.correctlyTyped} / ✗ {saved.stats.wronglyTyped}</span>
+				<span class="text-neutral-300"
+					>Seen: <span class="text-amber-300">{saved.stats.seen}</span></span
+				>
+				<div class="flex items-center gap-3">
+					<span class="text-green-400">✓ {saved.stats.correctlyTyped}</span>
+					<span class="text-red-400">✗ {saved.stats.wronglyTyped}</span>
+				</div>
 			</div>
 		</div>
 

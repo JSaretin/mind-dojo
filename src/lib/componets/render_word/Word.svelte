@@ -60,34 +60,19 @@
 
 	function generateRandomShiftOfWordPosition() {
 		if (settings.displayMode === 'full-word') return '';
+		if (!settings.randomlyMoveWordStarting) return '';
 		if (word.word.length >= 20) return '';
-		let position: string[] = [
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-0',
-			'-translate-x-3',
-			'-translate-x-5',
-			'-translate-x-7',
-			'-translate-x-8',
-			'-translate-x-10',
-			'-translate-x-12',
-			'-translate-x-13',
-			'-translate-x-16',
-			'-translate-x-20',
-			'-translate-x-24',
-			'-translate-x-26',
-			'-translate-x-30',
-			'-translate-x-34',
-			'-translate-x-35'
-		];
 
-		return position[Math.floor(Math.random() * position.length)];
+		// Bias towards no shift (0) but allow a range of shifts
+		const possibleShifts = [0, 0, 0, 0, 0, 3, 5, 7, 8, 10, 12, 13, 16, 20, 24, 26, 30, 34, 35];
+
+		// Pick a random magnitude
+		const shift = possibleShifts[Math.floor(Math.random() * possibleShifts.length)];
+
+		// Randomly decide left (-) or right (+)
+		const direction = Math.random() < 0.5 ? '-' : '';
+
+		return `${direction}translate-x-${shift}`;
 	}
 </script>
 

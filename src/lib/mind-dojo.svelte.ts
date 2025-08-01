@@ -31,6 +31,9 @@ const defaultSetting: MindDojoSettings = {
     restartLevelOnError: true,
     showNewWordOnError: true,
     hideTypedLetter: false,
+    noFeedbackSound: false,
+    randomlyMoveWordStarting: true,
+    typeRestartLevelOnErrorOnLevelCompletion: true
 }
 
 function getSettings() {
@@ -154,6 +157,7 @@ export class MindDojo {
     }
 
     handleError() {
+        this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
         if (this.currentWord) {
             this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                 sw.stats.wronglyTyped = (sw.stats.wronglyTyped || 0) + 1
@@ -161,9 +165,12 @@ export class MindDojo {
             })
         }
 
-        this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
-        this.gameSound.wrong.currentTime = 0.2
-        this.gameSound.wrong.play()
+        if (!this.settings.noFeedbackSound) {
+            setTimeout((async () => {
+                this.gameSound.wrong.currentTime = 0.2
+                this.gameSound.wrong.play()
+            }).bind(this), 0)
+        }
         this.pickNextWord()
     }
 
@@ -189,9 +196,6 @@ export class MindDojo {
         }
 
         if (this.currentWord?.word === this.typedWord) {
-            this.gameSound.win.currentTime = 0.3
-            this.gameSound.win.play()
-
             if (this.currentWord) {
                 this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                     sw.stats.correctlyTyped = (sw.stats.correctlyTyped || 0) + 1
@@ -199,9 +203,29 @@ export class MindDojo {
                 })
             }
 
+            setTimeout((async () => {
+                if (!this.settings.noFeedbackSound) {
+                    this.gameSound.win.currentTime = 0.3
+                    this.gameSound.win.play()
+                }
+            }).bind(this), 0)
+
+
             this.dojoState.progress = Math.min(this.dojoState.progress + 1, 100)
             if (this.dojoState.progress >= 100) {
-                this.settings.speed = Number.parseFloat((this.settings.speed * 1.05).toFixed(4))
+                let nextSpead = this.settings.speed;
+                if (this.settings.typeRestartLevelOnErrorOnLevelCompletion) {
+                    if (this.settings.restartLevelOnError) {
+                        this.settings.restartLevelOnError = false;
+                        nextSpead = this.settings.speed * 1.05;
+                    } else {
+                        this.settings.restartLevelOnError = true;
+                    }
+                } else {
+                    nextSpead = this.settings.speed * 1.05;
+                }
+
+                this.settings.speed = Number.parseFloat((nextSpead).toFixed(4))
                 this.dojoState.progress = 0
             }
             this.pickNextWord()
@@ -209,12 +233,10 @@ export class MindDojo {
         }
 
         if (this.currentWord?.word.startsWith(this.typedWord)) {
-            // on track
             return
         }
 
         if (!this.settings.showNewWordOnError) {
-            // sound error alart
             return
         }
 

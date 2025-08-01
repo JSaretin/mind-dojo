@@ -1,40 +1,5 @@
 <script lang="ts">
-	export interface LetterStyleSettings {
-		randomSize: boolean;
-		randomWeight: boolean;
-		randomFont: boolean;
-		randomTransform: boolean;
-		randomColor: boolean;
-		letterDisplayDirection: 'left-to-right' | 'center';
-	}
-
-	export interface VoiceSettings {
-		sayCurrentWord: boolean;
-		focusOnVoice: boolean;
-		focusOnLetter: boolean;
-	}
-
-	export interface WordMixSettings {
-		includeNumbers: boolean;
-		numberMode: 'smart' | 'random';
-		includeUppercase: boolean;
-		includeLowercase: boolean;
-	}
-
-	export interface MindDojoSettings {
-		speed: number;
-		sameLetterDelayPercent: number;
-		excludeLetters: string;
-		displayMode: 'letter-by-letter' | 'full-word';
-		letterStyle: LetterStyleSettings;
-		voice: VoiceSettings;
-		wordMix: WordMixSettings;
-		hideProgressBar: boolean;
-		hideTimer: boolean;
-		restartLevelOnError: boolean;
-		showNewWordOnError: boolean;
-		hideTypedLetter: boolean;
-	}
+	import type { MindDojoSettings } from '$lib/structure';
 
 	let { settings = $bindable() }: { settings: MindDojoSettings } = $props();
 
@@ -133,6 +98,15 @@
 				</select>
 			</div>
 		</div>
+
+		<!-- Level Setting / Toggle -->
+		<div class="space-y-2">
+			<p class="font-semibold">Word Setting</p>
+			<label>
+				<input type="checkbox" bind:checked={settings.randomlyMoveWordStarting} /> Position Word Randomly
+				On X Axis
+			</label>
+		</div>
 	{/if}
 
 	<!-- Voice Settings -->
@@ -177,6 +151,23 @@
 				{/each}
 			</select>
 		</div>
+	</div>
+
+	<!-- Feedback Setting / Toggle -->
+	<div class="space-y-2">
+		<p class="font-semibold">Feedback Setting</p>
+		<label>
+			<input type="checkbox" bind:checked={settings.noFeedbackSound} /> No Feedback Sound
+		</label>
+	</div>
+
+	<!-- Level Setting / Toggle -->
+	<div class="space-y-2">
+		<p class="font-semibold">Level Setting</p>
+		<label>
+			<input type="checkbox" bind:checked={settings.typeRestartLevelOnErrorOnLevelCompletion} /> Type
+			Restart Leve On Error After Level Completion
+		</label>
 	</div>
 
 	<!-- UI / Logic Toggles -->
