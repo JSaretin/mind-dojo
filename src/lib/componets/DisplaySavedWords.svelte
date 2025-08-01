@@ -7,7 +7,7 @@
 	let { mindDojo, showWordBank = $bindable(true) }: { mindDojo: MindDojo; showWordBank: boolean } =
 		$props();
 
-	let words: SavedWord[] = $derived(mindDojo.savedWords);
+	let words: SavedWord[] = $state([]);
 
 	let searchQuery = $state('');
 	let activeFilter: 'all' | 'starred' | 'journaled' = $state('all');
@@ -116,6 +116,10 @@
 	let filteredWords: SavedWord[] = $state([]);
 	$effect(() => {
 		filteredWords = getFilterredWords();
+	});
+
+	onMount(async () => {
+		words = await mindDojo.database.getAllWords();
 	});
 </script>
 

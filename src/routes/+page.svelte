@@ -57,9 +57,6 @@
 	function toggleWordBank() {
 		showWordBank = !showWordBank;
 	}
-
-	// Get word bank count for display
-	let wordBankCount = $derived(mindDojo.savedWords.length);
 </script>
 
 <svelte:window {onkeydown} {onkeypress} {onkeyup} />
@@ -102,7 +99,7 @@
 <!-- Main Game Interface -->
 <div class="relative min-h-screen w-full">
 	<!-- Top Navigation Bar -->
-	<NavBar {showSetting} {toggleSettingPopup} {toggleWordBank} {wordBankCount} bind:showWordBank />
+	<NavBar {showSetting} {toggleSettingPopup} {toggleWordBank} bind:showWordBank />
 
 	<!-- Game Area -->
 	<div class="relative flex min-h-[calc(100vh-80px)] items-center justify-center">

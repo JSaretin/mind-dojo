@@ -1,11 +1,5 @@
 <script lang="ts">
-	let {
-		showWordBank = $bindable(),
-		toggleWordBank,
-		wordBankCount,
-		toggleSettingPopup,
-		showSetting
-	} = $props();
+	let { showWordBank = $bindable(), toggleWordBank, toggleSettingPopup, showSetting } = $props();
 </script>
 
 <nav class="relative z-30 flex items-center justify-between p-4">
@@ -46,11 +40,6 @@
 				/>
 			</svg>
 			<span>Word Bank</span>
-			{#if wordBankCount > 0}
-				<span class="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">
-					{wordBankCount}
-				</span>
-			{/if}
 		</button>
 
 		<!-- Settings Button -->

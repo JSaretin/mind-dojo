@@ -69,7 +69,7 @@ export class MindDojo {
     wordMaxDuration = $state(0)
     timer: number | null = null
 
-    savedWords: SavedWord[] = $state([])
+    // savedWords: SavedWord[] = $state([])
 
     constructor(words: Words) {
         this.words = this.shuffle(words)
@@ -77,12 +77,12 @@ export class MindDojo {
         this.database = new SavedWordDB()
         this.loadGameSound()
         this.pickNextWord()
-        setTimeout(
-            (async () => {
-                if (!browser) return
-                this.savedWords = await this.database.getAllWords()
-            }).bind(this),
-        )
+        // setTimeout(
+        //     (async () => {
+        //         if (!browser) return
+        //         this.savedWords = await this.database.getAllWords()
+        //     }).bind(this),
+        // )
     }
 
     private loadGameSound() {
@@ -152,7 +152,7 @@ export class MindDojo {
             savedWord.stats.lastSeen = now // Always update lastSeen on any interaction
 
             await this.database.saveWord(savedWord)
-            this.savedWords = await this.database.getAllWords() // Re-fetch all words to update UI
+            // this.savedWords = await this.database.getAllWords() // Re-fetch all words to update UI
         })
     }
 
@@ -185,14 +185,14 @@ export class MindDojo {
 
         if (!this.timer) {
             this.timer = setInterval(() => {
-                this.wordTimerDuration = Math.max(this.wordTimerDuration - 0.1, 0)
+                this.wordTimerDuration = Math.max(this.wordTimerDuration - 0.01, 0)
 
                 if (this.wordTimerDuration <= 0) {
                     this.handleError()
                     clearInterval(this.timer!)
                     this.timer = null
                 }
-            }, 100)
+            }, 10)
         }
 
         if (this.currentWord?.word === this.typedWord) {
