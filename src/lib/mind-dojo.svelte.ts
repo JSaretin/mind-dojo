@@ -1,4 +1,5 @@
 import { browser } from "$app/environment"
+import { getRandomChar, initializeAudio } from "$lib"
 import { SavedWordDB } from "./database.svelte"
 import type { MindDojoSettings, SavedWord, Word, Words } from "./structure"
 
@@ -69,6 +70,11 @@ export class MindDojo {
     wordMaxDuration = $state(0)
     timer: number | null = null
 
+    lettersAudio: {
+        [k: string]: HTMLAudioElement;
+    } = {}
+
+
     // savedWords: SavedWord[] = $state([])
 
     constructor(words: Words) {
@@ -77,12 +83,9 @@ export class MindDojo {
         this.database = new SavedWordDB()
         this.loadGameSound()
         this.pickNextWord()
-        // setTimeout(
-        //     (async () => {
-        //         if (!browser) return
-        //         this.savedWords = await this.database.getAllWords()
-        //     }).bind(this),
-        // )
+        if (browser) {
+            this.lettersAudio = initializeAudio()
+        }
     }
 
     private loadGameSound() {
@@ -174,8 +177,44 @@ export class MindDojo {
         this.pickNextWord()
     }
 
+    processLetterAudion() {
+        const letter = this.currentWord?.word.at(this.typedWord.length);
+        if (!letter) return;
+
+        const voice = this.settings.voice;
+
+        if (voice.sayCurrentWord) {
+            const letterAudio = this.lettersAudio[letter.toLowerCase()];
+            if (letterAudio) {
+                letterAudio.currentTime = 0;
+                letterAudio.play().catch(() => { });
+            }
+            return;
+        }
+
+        if (voice.focusOnLetter) {
+            const expectedLetter = getRandomChar();
+            const audio = this.lettersAudio[expectedLetter];
+            if (audio) {
+                audio.currentTime = 0;
+                audio.play().catch(() => { });
+            }
+            return;
+        }
+
+        if (voice.focusOnVoice) {
+            const letterAudio = this.lettersAudio[letter];
+            if (letterAudio) {
+                letterAudio.currentTime = 0;
+                letterAudio.play().catch(() => { });
+            }
+            return;
+        }
+    }
+
     validateTypedWord() {
         if (!this.typedWord) {
+            this.processLetterAudion()
             if (this.timer) {
                 clearInterval(this.timer)
                 this.timer = null
@@ -228,9 +267,12 @@ export class MindDojo {
                 this.settings.speed = Number.parseFloat((nextSpead).toFixed(4))
                 this.dojoState.progress = 0
             }
+
             this.pickNextWord()
             return
         }
+
+        this.processLetterAudion()
 
         if (this.currentWord?.word.startsWith(this.typedWord)) {
             return

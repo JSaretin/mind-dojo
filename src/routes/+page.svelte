@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { initializeAudio } from '$lib';
 	import DisplaySavedWords from '$lib/componets/DisplaySavedWords.svelte';
 	import NavBar from '$lib/componets/NavBar.svelte';
 	import ProgressBar from '$lib/componets/ProgressBar.svelte';
@@ -15,7 +14,7 @@
 
 	let showSetting = $state(false);
 	let showWordBank = $state(false);
-	let audioMap = $derived(initializeAudio());
+
 	let mindDojo: MindDojo = $state(new MindDojo(data.words));
 
 	let allowGame = $derived(!showSetting && !showWordBank);
@@ -38,7 +37,6 @@
 
 	setContext('mindDojo', mindDojo);
 	setContext('settings', () => mindDojo.settings);
-	setContext('audioMapFuction', () => audioMap);
 
 	$effect(() => {
 		if (!browser) return;
@@ -116,7 +114,11 @@
 				</div>
 			{/if}
 
-			<RenderWord word={mindDojo.currentWord!} typedWord={mindDojo.typedWord} />
+			<RenderWord
+				settings={mindDojo.settings}
+				word={mindDojo.currentWord!}
+				typedWord={mindDojo.typedWord}
+			/>
 
 			<!-- Game Stats -->
 		</div>
