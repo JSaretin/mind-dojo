@@ -91,3 +91,15 @@ export function getBaseStyle(settings: MindDojoSettings): string {
 
     return `${size} ${weight} ${font} ${transform}`;
 }
+
+export function generateRandomShiftOfWordPosition(word: string, settings: MindDojoSettings) {
+    if (settings.displayMode === 'full-word') return '';
+    if (!settings.randomlyMoveWordStarting) return '';
+    if (word.length >= 25) return '';
+
+    const possibleShifts = [0, 3, 5, 7, 8, 10, 12, 13, 16, 20, 24, 26, 30, 34, 35];
+    const shift = possibleShifts[Math.floor(Math.random() * possibleShifts.length)];
+    const direction = Math.random() < 0.5 ? -1 : 1;
+
+    return `transform: translateX(${direction * shift * 0.25}rem);`;
+}
