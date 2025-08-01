@@ -38,8 +38,14 @@ const defaultSetting: MindDojoSettings = {
 }
 
 function getSettings() {
-    if (!browser) return defaultSetting
-    return JSON.parse(localStorage.getItem("settings") || JSON.stringify(defaultSetting))
+    if (!browser) return defaultSetting;
+    try {
+        const saved = JSON.parse(localStorage.getItem("settings") || "{}");
+        return { ...defaultSetting, ...saved };
+    } catch {
+        return defaultSetting;
+    }
+
 }
 
 export class MindDojo {
@@ -53,13 +59,11 @@ export class MindDojo {
         wrong: HTMLAudioElement
     } = {} as any
 
-    specialKeyIsHeld = false
     holdDelete = false
 
     settings: MindDojoSettings = $state(getSettings())
 
     dojoState = $state({
-        level: 1,
         progress: 0,
         lastOutcome: "" as "success" | "error" | "timeout" | "",
     })
@@ -75,7 +79,6 @@ export class MindDojo {
     } = {}
 
 
-    // savedWords: SavedWord[] = $state([])
 
     constructor(words: Words) {
         this.words = this.shuffle(words)
@@ -95,12 +98,46 @@ export class MindDojo {
     }
 
     private shuffle<T>(array: T[]): T[] {
-        const result = array.slice()
-        for (let i = result.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1))
-                ;[result[i], result[j]] = [result[j], result[i]]
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
         }
-        return result
+        return array;
+    }
+
+    private startTimer() {
+        if (this.timer) cancelAnimationFrame(this.timer);
+
+        let start = performance.now();
+        let pausedAt: number | null = null;
+        const max = this.wordMaxDuration * 1000; // ms
+
+        const tick = (now: number) => {
+            if (this.typedWord === "") {
+                // ⏸ pause if user cleared typedWord
+                pausedAt = now;
+                this.timer = requestAnimationFrame(tick);
+                return;
+            }
+
+            if (pausedAt !== null) {
+                // ▶ resume
+                start += now - pausedAt;
+                pausedAt = null;
+            }
+
+            const elapsed = now - start;
+            this.wordTimerDuration = Math.max((max - elapsed) / 1000, 0);
+
+            if (this.wordTimerDuration <= 0) {
+                this.handleError();
+                this.timer = null;
+            } else {
+                this.timer = requestAnimationFrame(tick);
+            }
+        };
+
+        this.timer = requestAnimationFrame(tick);
     }
 
     setTimer() {
@@ -155,8 +192,23 @@ export class MindDojo {
             savedWord.stats.lastSeen = now // Always update lastSeen on any interaction
 
             await this.database.saveWord(savedWord)
-            // this.savedWords = await this.database.getAllWords() // Re-fetch all words to update UI
         })
+    }
+
+    private advanceLevel() {
+        let nextSpeed = this.settings.speed;
+
+        if (this.settings.typeRestartLevelOnErrorOnLevelCompletion) {
+            this.settings.restartLevelOnError = !this.settings.restartLevelOnError;
+            if (!this.settings.restartLevelOnError) {
+                nextSpeed *= 1.05;
+            }
+        } else {
+            nextSpeed *= 1.05;
+        }
+
+        this.settings.speed = parseFloat(nextSpeed.toFixed(4));
+        this.dojoState.progress = 0;
     }
 
     handleError() {
@@ -169,121 +221,78 @@ export class MindDojo {
         }
 
         if (!this.settings.noFeedbackSound) {
-            setTimeout((async () => {
-                this.gameSound.wrong.currentTime = 0.2
-                this.gameSound.wrong.play()
-            }).bind(this), 0)
+            this.playSound(this.gameSound.wrong, 0.2)
         }
         this.pickNextWord()
     }
 
-    processLetterAudion() {
+    playSound(audio: HTMLAudioElement, start: number = 0.0) {
+        audio.currentTime = start
+        audio.play()
+    }
+
+    playLetter(letter: string, start = 0.0) {
+        const audio = this.lettersAudio[letter.toLowerCase()];
+        if (audio) this.playSound(audio, start);
+    }
+
+
+    processLetterAudio() {
         const letter = this.currentWord?.word.at(this.typedWord.length);
         if (!letter) return;
 
-        const voice = this.settings.voice;
+        const { sayCurrentWord, focusOnLetter, focusOnVoice } = this.settings.voice;
 
-        if (voice.sayCurrentWord) {
-            const letterAudio = this.lettersAudio[letter.toLowerCase()];
-            if (letterAudio) {
-                letterAudio.currentTime = 0;
-                letterAudio.play().catch(() => { });
-            }
-            return;
-        }
-
-        if (voice.focusOnLetter) {
-            const expectedLetter = getRandomChar();
-            const audio = this.lettersAudio[expectedLetter];
-            if (audio) {
-                audio.currentTime = 0;
-                audio.play().catch(() => { });
-            }
-            return;
-        }
-
-        if (voice.focusOnVoice) {
-            const letterAudio = this.lettersAudio[letter];
-            if (letterAudio) {
-                letterAudio.currentTime = 0;
-                letterAudio.play().catch(() => { });
-            }
-            return;
+        if (sayCurrentWord || focusOnVoice) {
+            this.playLetter(letter);
+        } else if (focusOnLetter) {
+            this.playLetter(getRandomChar());
         }
     }
 
     validateTypedWord() {
         if (!this.typedWord) {
-            this.processLetterAudion()
-            if (this.timer) {
-                clearInterval(this.timer)
-                this.timer = null
-            }
-            return
+            this.processLetterAudio();
+            return; // ⏸ timer pause handled in startTimer()
         }
 
         if (!this.timer) {
-            this.timer = setInterval(() => {
-                this.wordTimerDuration = Math.max(this.wordTimerDuration - 0.01, 0)
-
-                if (this.wordTimerDuration <= 0) {
-                    this.handleError()
-                    clearInterval(this.timer!)
-                    this.timer = null
-                }
-            }, 10)
+            this.startTimer();
         }
 
         if (this.currentWord?.word === this.typedWord) {
             if (this.currentWord) {
                 this.updateWordStatsInDb(this.currentWord.word, (sw) => {
-                    sw.stats.correctlyTyped = (sw.stats.correctlyTyped || 0) + 1
-                    return sw
-                })
+                    sw.stats.correctlyTyped = (sw.stats.correctlyTyped || 0) + 1;
+                    return sw;
+                });
             }
 
-            setTimeout((async () => {
-                if (!this.settings.noFeedbackSound) {
-                    this.gameSound.win.currentTime = 0.3
-                    this.gameSound.win.play()
-                }
-            }).bind(this), 0)
+            if (!this.settings.noFeedbackSound) {
+                this.playSound(this.gameSound.win, 0.3);
+            }
 
-
-            this.dojoState.progress = Math.min(this.dojoState.progress + 1, 100)
+            this.dojoState.progress = Math.min(this.dojoState.progress + 1, 100);
             if (this.dojoState.progress >= 100) {
-                let nextSpead = this.settings.speed;
-                if (this.settings.typeRestartLevelOnErrorOnLevelCompletion) {
-                    if (this.settings.restartLevelOnError) {
-                        this.settings.restartLevelOnError = false;
-                        nextSpead = this.settings.speed * 1.05;
-                    } else {
-                        this.settings.restartLevelOnError = true;
-                    }
-                } else {
-                    nextSpead = this.settings.speed * 1.05;
-                }
-
-                this.settings.speed = Number.parseFloat((nextSpead).toFixed(4))
-                this.dojoState.progress = 0
+                this.advanceLevel();
             }
 
-            this.pickNextWord()
-            return
+            this.pickNextWord();
+            return;
         }
 
-        this.processLetterAudion()
+        this.processLetterAudio();
 
         if (this.currentWord?.word.startsWith(this.typedWord)) {
-            return
+            return; // still valid partial input
         }
 
-        if (!this.settings.showNewWordOnError) {
-            return
+        if (this.settings.showNewWordOnError) {
+            this.handleError();
         }
-
-        this.handleError()
     }
+
+
 
     onKeyDown(event: KeyboardEvent): void {
         const key = event.key
@@ -311,33 +320,38 @@ export class MindDojo {
     }
 
     pickNextWord(): void {
-        // Reset index if we've reached the end
         if (this.currentIndex >= this.words.length) {
-            this.currentIndex = 0
+            this.currentIndex = 0;
         }
 
-        // Shuffle and pick a word
-        const pickedWord = this.words[this.currentIndex]
+        const pickedWord = this.words[this.currentIndex];
 
-        // Update seen count and lastSeen for the picked word
         this.updateWordStatsInDb(pickedWord.word, (sw) => {
-            sw.stats.seen = (sw.stats.seen || 0) + 1
-            return sw
-        })
+            sw.stats.seen = (sw.stats.seen || 0) + 1;
+            return sw;
+        });
 
-        this.currentWord = pickedWord
+        this.currentWord = pickedWord;
+        this.typedWord = "";
+        this.currentIndex++;
 
-        this.typedWord = ""
-        this.currentIndex++
+        // ✅ reset durations
+        this.setTimer();
 
-        this.setTimer()
-        this.validateTypedWord()
+        // ✅ fully stop old timer loop
+        if (this.timer) {
+            cancelAnimationFrame(this.timer);
+            this.timer = null;
+        }
+
+        this.processLetterAudio()
     }
+
+
 
     public reset(words: Words): void {
         this.words = this.shuffle(words)
         this.currentIndex = 0
-        this.dojoState.level = 1
         this.dojoState.progress = 0
         this.dojoState.lastOutcome = ""
         this.pickNextWord()
