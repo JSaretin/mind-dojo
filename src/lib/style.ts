@@ -80,14 +80,14 @@ export function getRandomLetterStyle(): string {
 }
 
 /** Compose style based on settings toggles for each attribute */
-export function getBaseStyle(settings: MindDojoSettings): string {
+export function getBaseStyle(letter: string, settings: MindDojoSettings): string {
     const isFullWord = settings.displayMode === 'full-word'
     if (isFullWord) return `text-8xl font-bold font-montserrat rotate-0`
 
     const size = settings.letterStyle?.randomSize ? getRandomSize() : 'text-8xl';
     const weight = settings.letterStyle?.randomWeight ? getRandomWeight() : 'font-bold';
     const font = settings.letterStyle?.randomFont ? getRandomFont() : 'font-montserrat';
-    const transform = settings.letterStyle?.randomTransform ? getRandomTransform() : 'rotate-0';
+    const transform = (letter !== '-' && settings.letterStyle?.randomTransform) ? getRandomTransform() : 'rotate-0';
 
     return `${size} ${weight} ${font} ${transform}`;
 }

@@ -18,7 +18,7 @@
 	} = $props();
 </script>
 
-<div class=" flex" style={wordTransform}>
+<div class={'flex ' + (word.word.length >= 25 ? 'scale-90' : '')} style={wordTransform}>
 	{#if settings.displayMode === 'letter-by-letter'}
 		{#if settings.letterStyle?.letterDisplayDirection === 'left-to-right'}
 			{#each word.word as letter, index}
@@ -53,7 +53,9 @@
 				{/each}
 			</div>
 			<!-- Word Meanings Popup for Full Word Mode -->
-			<WordMeaning {word} />
+			{#if !settings.joinRandomLetters}
+				<WordMeaning {word} />
+			{/if}
 		</div>
 	{/if}
 </div>

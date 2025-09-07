@@ -5,7 +5,7 @@
 	const mindDojo: MindDojo = getContext('mindDojo');
 
 	let progress = $derived(mindDojo.dojoState.progress);
-	let speed = $derived(mindDojo.settings.speed);
+	let speed = $derived(mindDojo.settings.speed || 0);
 
 	let progressColor = $derived(
 		progress >= 80 ? 'bg-red-500' : progress >= 50 ? 'bg-yellow-400' : 'bg-green-400'
@@ -46,7 +46,9 @@
 			<!-- {speed.toFixed(1)} -->
 			<div class="flex place-items-center justify-center gap-4 text-center align-middle">
 				<div class="text-xs text-neutral-400">Speed</div>
-				<div class="text-lg font-bold text-green-400">{mindDojo.settings.speed.toFixed(4)}</div>
+				<div class="text-lg font-bold text-green-400">
+					{speed.toFixed(4)}
+				</div>
 			</div>
 		</div>
 	</div>

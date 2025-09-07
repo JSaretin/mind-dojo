@@ -50,6 +50,79 @@
 		/>
 	</div>
 
+	<!-- Game Mode Setting -->
+	<div class="space-y-2">
+		<p class="font-semibold">Chaos Mode Settings</p>
+
+		<label>
+			<input type="checkbox" bind:checked={settings.franticMode} /> Enable Chaos Mode
+		</label>
+		<br />
+
+		{#if settings.franticMode}
+			<!-- Select / Deselect All -->
+			<label>
+				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeDisplayMode} />
+				Toggle Word Display Mode
+			</label>
+			<br />
+
+			<label>
+				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeLetterStyle} />
+				Randomize Letter Style
+			</label>
+			<br />
+
+			<label>
+				<input
+					type="checkbox"
+					bind:checked={settings.franticSettings.shouldChangeProgressBarVisibility}
+				/>
+				Toggle Progress Bar Visibility
+			</label>
+			<br />
+
+			<label>
+				<input
+					type="checkbox"
+					bind:checked={settings.franticSettings.shouldChangeTimerVisibility}
+				/>
+				Toggle Timer Visibility
+			</label>
+			<br />
+
+			<label>
+				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeRestartOnError} />
+				Toggle Restart on Error
+			</label>
+			<br />
+
+			<label>
+				<input
+					type="checkbox"
+					bind:checked={settings.franticSettings.shouldChangeRandomWordPosition}
+				/>
+				Randomize Word Position
+			</label>
+			<br />
+
+			<label>
+				<input
+					type="checkbox"
+					bind:checked={settings.franticSettings.shouldChangeHideTypedLetter}
+				/>
+				Toggle Hide Typed Letter
+			</label>
+			<br />
+
+			<label>
+				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeWordLength} />
+				Randomize Word Length
+			</label>
+			<br />
+		{/if}
+	</div>
+
 	<!-- Display Mode -->
 	<div>
 		<label class="mb-1 block font-semibold" for="displayMode">Display Mode</label>
@@ -58,6 +131,51 @@
 				<option value={mode}>{mode}</option>
 			{/each}
 		</select>
+	</div>
+
+	<!-- Level Setting / Toggle -->
+	<div class="space-y-2">
+		<p class="font-semibold">Word Setting</p>
+		<div>
+			<label class="mb-1 block font-semibold" for="minWordLenth">Min Word Length</label>
+			<input
+				type="range"
+				min="1"
+				max="30"
+				bind:value={settings.minWordLength}
+				class="w-full"
+				id="minWordLenth"
+			/>
+			<p class="text-sm text-neutral-600">{settings.minWordLength}</p>
+		</div>
+		<div>
+			<label class="mb-1 block font-semibold" for="maxWordLenth">Max Word Length</label>
+			<input
+				type="range"
+				min="1"
+				max="30"
+				bind:value={settings.maxWordLength}
+				class="w-full"
+				id="maxWordLenth"
+			/>
+			<p class="text-sm text-neutral-600">{settings.maxWordLength}</p>
+		</div>
+		<label>
+			<input type="checkbox" bind:checked={settings.joinRandomLetters} /> Join Random Letter To Make
+			A Word
+		</label>
+		<br />
+		{#if settings.joinRandomLetters}
+			<label>
+				<input type="checkbox" bind:checked={settings.mixJoinRandomLetters} /> Mix Random Word With Normal
+				Word
+			</label>
+			<br />
+		{/if}
+		<label>
+			<input type="checkbox" bind:checked={settings.randomlyMoveWordStarting} /> Position Word Randomly
+			On X Axis
+		</label>
 	</div>
 
 	<!-- Letter Style Settings (only if letter-by-letter) -->
@@ -98,16 +216,15 @@
 				</select>
 			</div>
 		</div>
-
-		<!-- Level Setting / Toggle -->
-		<div class="space-y-2">
-			<p class="font-semibold">Word Setting</p>
-			<label>
-				<input type="checkbox" bind:checked={settings.randomlyMoveWordStarting} /> Position Word Randomly
-				On X Axis
-			</label>
-		</div>
 	{/if}
+
+	<!-- Game Memory Setting -->
+	<div class="space-y-2">
+		<p class="font-semibold">Game Memory Setting</p>
+		<label>
+			<input type="checkbox" bind:checked={settings.saveTypedWord} /> Save Shown Words On Device
+		</label>
+	</div>
 
 	<!-- Voice Settings -->
 	<div class="space-y-2">
@@ -159,6 +276,12 @@
 		<label>
 			<input type="checkbox" bind:checked={settings.noFeedbackSound} /> No Feedback Sound
 		</label>
+		{#if settings.displayMode === 'letter-by-letter' && settings.letterStyle.letterDisplayDirection === 'center'}
+			<br />
+			<label>
+				<input type="checkbox" bind:checked={settings.noSuccessFeedbackSound} /> No success feedback
+			</label>
+		{/if}
 	</div>
 
 	<!-- Level Setting / Toggle -->

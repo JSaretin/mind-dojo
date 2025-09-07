@@ -1,7 +1,7 @@
 import { browser } from "$app/environment";
 
-export function getRandomChar(): string {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+export function getRandomChar(addNumber: boolean = true, addDash: boolean = false): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyz' + (addNumber ? '0123456789' : '') + (addDash ? '-' : '');
     return chars[Math.floor(Math.random() * chars.length)];
 }
 

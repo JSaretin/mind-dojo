@@ -7,7 +7,7 @@
 	import Setting from '$lib/componets/Setting.svelte';
 	import Timer from '$lib/componets/Timer.svelte';
 	import { MindDojo } from '$lib/mind-dojo.svelte';
-	import type { Words } from '$lib/structure';
+	import type { SavedWord, Words } from '$lib/structure';
 	import { setContext } from 'svelte';
 
 	let { data }: { data: { words: Words } } = $props();
@@ -52,7 +52,12 @@
 		showSetting = true;
 	}
 
-	function toggleWordBank() {
+	let words: SavedWord[] = $state([]);
+	async function toggleWordBank() {
+		if (!showWordBank) {
+			words = await mindDojo.database.getAllWords();
+		}
+
 		showWordBank = !showWordBank;
 	}
 </script>
@@ -92,7 +97,8 @@
 {/if}
 
 <!-- Word Bank Panel -->
-<DisplaySavedWords bind:showWordBank {mindDojo} />
+
+<DisplaySavedWords bind:showWordBank {mindDojo} {words} />
 
 <!-- Main Game Interface -->
 <div class="relative min-h-screen w-full">

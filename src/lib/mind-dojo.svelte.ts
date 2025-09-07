@@ -9,11 +9,26 @@ const defaultSetting: MindDojoSettings = {
     sameLetterDelayPercent: 60,
     excludeLetters: "",
     displayMode: "letter-by-letter",
+    joinRandomLetters: true,
+    mixJoinRandomLetters: true,
+    franticMode: false, // stays false by default, but all frantic settings are ready
+    franticSettings: {
+        shouldChangeDisplayMode: true,
+        shouldChangeLetterStyle: true,
+        shouldChangeProgressBarVisibility: true,
+        shouldChangeTimerVisibility: true,
+        shouldChangeRestartOnError: true,
+        shouldChangeRandomWordPosition: true,
+        shouldChangeHideTypedLetter: true,
+        shouldChangeWordLength: true,   // ✅ new flag defaults to true
+    },
+    minWordLength: 1,
+    maxWordLength: 30,
     letterStyle: {
         randomSize: true,
-        randomWeight: true, // added
+        randomWeight: true,
         randomFont: true,
-        randomTransform: true, // added
+        randomTransform: true,
         randomColor: true,
         letterDisplayDirection: "center",
     },
@@ -34,9 +49,12 @@ const defaultSetting: MindDojoSettings = {
     showNewWordOnError: true,
     hideTypedLetter: false,
     noFeedbackSound: false,
+    noSuccessFeedbackSound: false,
     randomlyMoveWordStarting: true,
-    typeRestartLevelOnErrorOnLevelCompletion: true
-}
+    saveTypedWord: true,
+    typeRestartLevelOnErrorOnLevelCompletion: true,
+};
+
 
 function getSettings() {
     if (!browser) return defaultSetting;
@@ -148,7 +166,7 @@ export class MindDojo {
         let totalWait = 0
 
         const word = this.currentWord!.word
-        const speed = Math.max(this.settings.speed, 1)
+        const speed = Math.max(this.settings.speed || 0, 1)
 
         const baseDelay = 1 / speed
         const repeatMultiplier = (this.settings.sameLetterDelayPercent ?? 100) / 100
@@ -214,9 +232,17 @@ export class MindDojo {
         this.dojoState.progress = 0;
     }
 
+    shouldSave() {
+        if (!this.settings.saveTypedWord) return false
+        if (this.settings.joinRandomLetters) return false;
+        if ((this.settings.displayMode === 'letter-by-letter') &&
+            (this.settings.letterStyle.letterDisplayDirection === 'center')) return false
+        return true
+    }
+
     handleError() {
         this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
-        if (this.currentWord) {
+        if (this.currentWord && this.shouldSave()) {
             this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                 sw.stats.wronglyTyped = (sw.stats.wronglyTyped || 0) + 1
                 return sw
@@ -264,7 +290,7 @@ export class MindDojo {
         }
 
         if (this.currentWord?.word === this.typedWord) {
-            if (this.currentWord) {
+            if (this.currentWord && this.shouldSave()) {
                 this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                     sw.stats.correctlyTyped = (sw.stats.correctlyTyped || 0) + 1;
                     return sw;
@@ -272,7 +298,11 @@ export class MindDojo {
             }
 
             if (!this.settings.noFeedbackSound) {
-                this.playSound(this.gameSound.win, 0.3);
+                if ((this.settings.displayMode === 'full-word') ||
+                    (this.settings.letterStyle.letterDisplayDirection === 'left-to-right') ||
+                    !this.settings.noSuccessFeedbackSound) {
+                    this.playSound(this.gameSound.win, 0.3);
+                }
             }
 
             this.dojoState.progress = Math.min(this.dojoState.progress + 1, 100);
@@ -294,8 +324,6 @@ export class MindDojo {
             this.handleError();
         }
     }
-
-
 
     onKeyDown(event: KeyboardEvent): void {
         const key = event.key
@@ -322,22 +350,129 @@ export class MindDojo {
         this.holdDelete = false
     }
 
+    generateRandomSetting(): void {
+        if (!this.settings.franticMode) return;
+
+        const flags = this.settings.franticSettings;
+        let newSettings: MindDojoSettings = { ...this.settings };
+
+        // helper
+        const randBool = () => Math.random() < 0.5;
+        const randInt = (min: number, max: number) =>
+            Math.floor(Math.random() * (max - min + 1)) + min;
+
+        // Change display mode
+        if (flags.shouldChangeDisplayMode) {
+            newSettings.displayMode = randBool() ? 'letter-by-letter' : 'full-word';
+        }
+
+        // Letter style randomization
+        if (flags.shouldChangeLetterStyle && newSettings.displayMode === 'letter-by-letter') {
+            newSettings.letterStyle = {
+                ...newSettings.letterStyle,
+                letterDisplayDirection: randBool() ? 'left-to-right' : 'center',
+                randomColor: randBool(),
+                randomFont: randBool(),
+                randomWeight: randBool(),
+                randomSize: randBool(),
+                randomTransform: randBool(),
+            };
+        }
+
+        // Progress bar
+        if (flags.shouldChangeProgressBarVisibility) {
+            newSettings.hideProgressBar = randBool();
+        }
+
+        // Timer
+        if (flags.shouldChangeTimerVisibility) {
+            newSettings.hideTimer = randBool();
+        }
+
+        // Restart on error
+        if (flags.shouldChangeRestartOnError) {
+            newSettings.restartLevelOnError = randBool();
+        }
+
+        // Word positioning
+        if (flags.shouldChangeRandomWordPosition) {
+            newSettings.randomlyMoveWordStarting = randBool();
+        }
+
+        // Hide typed letter
+        if (flags.shouldChangeHideTypedLetter) {
+            newSettings.hideTypedLetter = randBool();
+        }
+
+        // ✅ Word length randomization
+        if (flags.shouldChangeWordLength) {
+            // Get the lengths of the filtered words
+
+            const randomMin = randInt(3, 30);
+            const randomMax = randInt(randomMin, 30); // ensure max >= min
+
+            const isZero = this.words.filter((w) => {
+                const l = w.word.length
+                return (l >= randomMin) && (l <= randomMax)
+            }).length == 0;
+
+            if (isZero) {
+                newSettings.minWordLength = 1;
+                newSettings.maxWordLength = 30;
+            }
+            else {
+                newSettings.minWordLength = randomMin;
+                newSettings.maxWordLength = randomMax;
+            }
+
+
+        }
+
+        // Finally assign back
+        this.settings = newSettings;
+    }
+
+
     pickNextWord(): void {
-        if (this.currentIndex >= this.words.length) {
+        this.generateRandomSetting();
+
+        const tempWords = this.words.filter((w) => {
+            const { maxWordLength = 1, minWordLength = 30 } = this.settings
+            if (minWordLength > w.word.length) return false
+            if (maxWordLength < w.word.length) return false
+            return true
+        })
+
+        if (this.currentIndex >= tempWords.length) {
             this.currentIndex = 0;
         }
 
-        const pickedWord = this.words[this.currentIndex];
+        const pickedWord = tempWords[this.currentIndex];
 
-        this.updateWordStatsInDb(pickedWord.word, (sw) => {
-            sw.stats.seen = (sw.stats.seen || 0) + 1;
-            return sw;
-        });
+        if (this.settings.saveTypedWord && this.shouldSave()) {
+            this.updateWordStatsInDb(pickedWord.word, (sw) => {
+                sw.stats.seen = (sw.stats.seen || 0) + 1;
+                return sw;
+            });
+        }
+
+        if (this.settings.joinRandomLetters) {
+            let newWord = ''
+            for (let i = 0; i < pickedWord.word.length; i++) {
+                newWord += getRandomChar(false, Math.random() > 0.85)
+            }
+            if (!this.settings.mixJoinRandomLetters) {
+                pickedWord.word = newWord
+            } else {
+                const shouldGiveRandom = Math.random() < 0.8
+                pickedWord.word = shouldGiveRandom ? newWord : pickedWord.word;
+            }
+        }
 
         this.currentWord = pickedWord;
 
         for (let i = 0; i < pickedWord.word.length; i++) {
-            this.currentWordStyle[i] = getBaseStyle(this.settings);
+            this.currentWordStyle[i] = getBaseStyle(this.currentWord.word[i], this.settings);
         }
         this.wordTransformStyle = generateRandomShiftOfWordPosition(pickedWord.word, this.settings)
 

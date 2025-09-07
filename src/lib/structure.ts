@@ -53,22 +53,40 @@ export interface WordMixSettings {
     includeLowercase: boolean;
 }
 
+export interface FranticSettings {
+    shouldChangeDisplayMode: boolean;
+    shouldChangeLetterStyle: boolean;
+    shouldChangeProgressBarVisibility: boolean;
+    shouldChangeTimerVisibility: boolean;
+    shouldChangeRestartOnError: boolean;
+    shouldChangeRandomWordPosition: boolean;
+    shouldChangeHideTypedLetter: boolean;
+    shouldChangeWordLength: boolean;   // ✅ new
+}
+
 
 export interface MindDojoSettings {
     speed: number;
     sameLetterDelayPercent: number;
     excludeLetters: string;
+    joinRandomLetters: boolean;
+    franticMode: boolean;
+    franticSettings: FranticSettings;
+    mixJoinRandomLetters: boolean;
+    minWordLength: number;
+    maxWordLength: number;
     displayMode: 'letter-by-letter' | 'full-word';
     letterStyle: LetterStyleSettings;
     voice: VoiceSettings;
     wordMix: WordMixSettings;
     noFeedbackSound: boolean;
+    noSuccessFeedbackSound: boolean;
     hideProgressBar: boolean;
     hideTimer: boolean;
     restartLevelOnError: boolean;
     showNewWordOnError: boolean;
     hideTypedLetter: boolean;
     randomlyMoveWordStarting: boolean;
+    saveTypedWord: boolean;
     typeRestartLevelOnErrorOnLevelCompletion: boolean;
-
 }

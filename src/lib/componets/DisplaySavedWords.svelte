@@ -1,13 +1,14 @@
 <script lang="ts">
 	import type { MindDojo } from '$lib/mind-dojo.svelte';
 	import type { SavedWord } from '$lib/structure';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import DisplaySavedWord from './DisplaySavedWord.svelte';
 
-	let { mindDojo, showWordBank = $bindable(true) }: { mindDojo: MindDojo; showWordBank: boolean } =
-		$props();
-
-	let words: SavedWord[] = $state([]);
+	let {
+		mindDojo,
+		showWordBank = $bindable(true),
+		words
+	}: { mindDojo: MindDojo; showWordBank: boolean; words: SavedWord[] } = $props();
 
 	let searchQuery = $state('');
 	let activeFilter: 'all' | 'starred' | 'journaled' = $state('all');
@@ -116,10 +117,6 @@
 	let filteredWords: SavedWord[] = $state([]);
 	$effect(() => {
 		filteredWords = getFilterredWords();
-	});
-
-	onMount(async () => {
-		words = await mindDojo.database.getAllWords();
 	});
 </script>
 
