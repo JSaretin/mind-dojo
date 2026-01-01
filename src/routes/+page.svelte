@@ -7,15 +7,16 @@
 	import Setting from '$lib/componets/Setting.svelte';
 	import Timer from '$lib/componets/Timer.svelte';
 	import { MindDojo } from '$lib/mind-dojo.svelte';
+	import { words as dictWords } from '$lib/words';
 	import type { SavedWord, Words } from '$lib/structure';
 	import { setContext } from 'svelte';
 
-	let { data }: { data: { words: Words } } = $props();
+	// let { data }: { data: { words: Words } } = $props();
 
 	let showSetting = $state(false);
 	let showWordBank = $state(false);
 
-	let mindDojo: MindDojo = $state(new MindDojo(data.words));
+	let mindDojo: MindDojo = $state(new MindDojo(dictWords));
 
 	let allowGame = $derived(!showSetting && !showWordBank);
 
