@@ -47,7 +47,7 @@
 			<div class="flex place-items-center justify-center gap-4 text-center align-middle">
 				<div class="text-xs text-neutral-400">Speed</div>
 				<div class="text-lg font-bold text-green-400">
-					{speed.toFixed(4)}
+					({((speed || 0) * 12).toFixed(2)} WPM)
 				</div>
 			</div>
 		</div>

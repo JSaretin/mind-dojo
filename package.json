@@ -35,6 +35,7 @@
     "vite": "^7.0.4"
   },
   "dependencies": {
+    "@sveltejs/adapter-vercel": "^6.2.0",
     "electron": "^38.0.0"
   }
 }

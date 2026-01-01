@@ -64,6 +64,11 @@ export interface FranticSettings {
     shouldChangeWordLength: boolean;   // ✅ new
 }
 
+export interface FocusKeys {
+    excludeKeys: string;
+    includeKeys: string;
+}
+
 
 export interface MindDojoSettings {
     speed: number;
@@ -89,4 +94,5 @@ export interface MindDojoSettings {
     randomlyMoveWordStarting: boolean;
     saveTypedWord: boolean;
     typeRestartLevelOnErrorOnLevelCompletion: boolean;
+    // focusKeys: FocusKeys
 }

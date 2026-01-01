@@ -13,7 +13,9 @@
 
 	<!-- Speed -->
 	<div>
-		<label class="mb-1 block font-semibold" for="speed">Typing Speed (higher = faster)</label>
+		<label class="mb-1 block font-semibold" for="speed"
+			>Typing Speed (higher = faster) ({((settings.speed || 0) * 12).toFixed(2)} WPM)</label
+		>
 		<input
 			type="number"
 			min="0.1"
@@ -316,4 +318,13 @@
 			<input type="checkbox" bind:checked={settings.hideTypedLetter} /> Hide Typed Letter
 		</label>
 	</div>
+
+	<!-- Focus Area -->
+	<!-- <div class="space-y-2">
+		<p class="font-semibold">Focus Area</p>
+		<label>
+			Exclude Keys
+			<input type="text" bind:value={settings.focusKeys.excludeKeys} />
+		</label>
+	</div> -->
 </section>

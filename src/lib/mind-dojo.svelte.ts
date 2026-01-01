@@ -432,41 +432,60 @@ export class MindDojo {
         this.settings = newSettings;
     }
 
+    generateRandomLettersWord() {
+        const { maxWordLength = 1, minWordLength = 30 } = this.settings
 
-    pickNextWord(): void {
-        this.generateRandomSetting();
+        let pickedWord: Word = {
+            antonyms: [],
+            meanings: [],
+            synonyms: [],
+            word: ''
+        }
+        const wordLength = Math.floor(Math.random() * (maxWordLength - minWordLength + 1)) + minWordLength
+        for (let i = 0; i < wordLength; i++) {
+            pickedWord.word += getRandomChar(false, Math.random() > 0.85, this.settings.excludeLetters)
+        }
+        return pickedWord
+    }
 
-        const tempWords = this.words.filter((w) => {
-            const { maxWordLength = 1, minWordLength = 30 } = this.settings
+    generateWord() {
+        let pickedWord: Word = {
+            antonyms: [],
+            meanings: [],
+            synonyms: [],
+            word: ''
+        }
+        const { maxWordLength = 1, minWordLength = 30 } = this.settings
+
+        const tempWords = this.words.filter(w => {
+            for (const l of this.settings.excludeLetters) {
+                if (w.word.includes(l)) return false
+            }
+            return true;
+        }).filter((w) => {
             if (minWordLength > w.word.length) return false
             if (maxWordLength < w.word.length) return false
             return true
         })
-
         if (this.currentIndex >= tempWords.length) {
             this.currentIndex = 0;
         }
+        pickedWord = tempWords[this.currentIndex];
+        this.currentIndex++;
+        return pickedWord
+    }
 
-        const pickedWord = tempWords[this.currentIndex];
+    pickNextWord(): void {
+        this.generateRandomSetting();
 
-        if (this.settings.saveTypedWord && this.shouldSave()) {
+        let isRandom = this.settings.joinRandomLetters && (!this.settings.mixJoinRandomLetters || Math.random() < 0.8)
+        const pickedWord = (isRandom ? this.generateRandomLettersWord : this.generateWord).bind(this)()
+
+        if (!this.settings.joinRandomLetters && this.settings.saveTypedWord && this.shouldSave()) {
             this.updateWordStatsInDb(pickedWord.word, (sw) => {
                 sw.stats.seen = (sw.stats.seen || 0) + 1;
                 return sw;
             });
-        }
-
-        if (this.settings.joinRandomLetters) {
-            let newWord = ''
-            for (let i = 0; i < pickedWord.word.length; i++) {
-                newWord += getRandomChar(false, Math.random() > 0.85)
-            }
-            if (!this.settings.mixJoinRandomLetters) {
-                pickedWord.word = newWord
-            } else {
-                const shouldGiveRandom = Math.random() < 0.8
-                pickedWord.word = shouldGiveRandom ? newWord : pickedWord.word;
-            }
         }
 
         this.currentWord = pickedWord;
@@ -477,7 +496,6 @@ export class MindDojo {
         this.wordTransformStyle = generateRandomShiftOfWordPosition(pickedWord.word, this.settings)
 
         this.typedWord = "";
-        this.currentIndex++;
 
         // ✅ reset durations
         this.setTimer();
