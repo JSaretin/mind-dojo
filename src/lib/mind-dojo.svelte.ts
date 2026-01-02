@@ -6,7 +6,7 @@ import { generateRandomShiftOfWordPosition, getBaseStyle } from "./style"
 
 const defaultSetting: MindDojoSettings = {
     speed: 2,
-    sameLetterDelayPercent: 60,
+    sameLetterDelayPercent: 100,
     excludeLetters: "",
     displayMode: "letter-by-letter",
     joinRandomLetters: true,
@@ -23,19 +23,19 @@ const defaultSetting: MindDojoSettings = {
         shouldChangeWordLength: true,   // ✅ new flag defaults to true
     },
     minWordLength: 1,
-    maxWordLength: 30,
+    maxWordLength: 25,
     letterStyle: {
-        randomSize: true,
-        randomWeight: true,
-        randomFont: true,
-        randomTransform: true,
-        randomColor: true,
-        letterDisplayDirection: "center",
+        randomSize: false,
+        randomWeight: false,
+        randomFont: false,
+        randomTransform: false,
+        randomColor: false,
+        letterDisplayDirection: "left-to-right",
     },
     voice: {
         sayCurrentWord: false,
         focusOnVoice: false,
-        focusOnLetter: true,
+        focusOnLetter: false,
     },
     wordMix: {
         includeNumbers: true,
@@ -45,7 +45,7 @@ const defaultSetting: MindDojoSettings = {
     },
     hideProgressBar: false,
     hideTimer: false,
-    restartLevelOnError: true,
+    restartLevelOnError: false,
     showNewWordOnError: true,
     hideTypedLetter: false,
     noFeedbackSound: false,
