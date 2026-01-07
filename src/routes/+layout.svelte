@@ -46,12 +46,10 @@
 				isDarkMode = !isDarkMode;
 				localStorage.setItem('mode', isDarkMode ? '1' : '');
 			}}
-			>{#if isDarkMode}
-				<img src="/on.webp" alt="On" />
-			{:else}
-				<img src="/off.png" alt="Dark" class="scale-110" />
-			{/if}</button
 		>
+			<img src="/on.webp" alt="On" class={'' + (!isDarkMode ? 'hidden' : '')} />
+			<img src="/off.png" alt="Dark" class={'' + (!isDarkMode ? '' : 'hidden')} />
+		</button>
 	</div>
 	{@render children()}
 </div>
