@@ -317,6 +317,11 @@
 		<label>
 			<input type="checkbox" bind:checked={settings.hideTypedLetter} /> Hide Typed Letter
 		</label>
+		<br />
+		<label>
+			<input type="checkbox" bind:checked={settings.displayLetterInUpperCase} /> Display Letter In Upper
+			Case
+		</label>
 	</div>
 
 	<!-- Focus Area -->

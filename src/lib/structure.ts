@@ -94,5 +94,6 @@ export interface MindDojoSettings {
     randomlyMoveWordStarting: boolean;
     saveTypedWord: boolean;
     typeRestartLevelOnErrorOnLevelCompletion: boolean;
+    displayLetterInUpperCase: boolean;
     // focusKeys: FocusKeys
 }

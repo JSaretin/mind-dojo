@@ -53,6 +53,7 @@ const defaultSetting: MindDojoSettings = {
     randomlyMoveWordStarting: true,
     saveTypedWord: true,
     typeRestartLevelOnErrorOnLevelCompletion: true,
+    displayLetterInUpperCase: false,
 };
 
 
