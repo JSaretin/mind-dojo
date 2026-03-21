@@ -1,1 +1,113 @@
 @import 'tailwindcss';
+
+@font-face { font-family: 'Rajdhani'; font-weight: 300; font-display: swap; src: url('/fonts/rajdhani-300.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-weight: 400; font-display: swap; src: url('/fonts/rajdhani-400.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-weight: 500; font-display: swap; src: url('/fonts/rajdhani-500.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-weight: 600; font-display: swap; src: url('/fonts/rajdhani-600.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-weight: 700; font-display: swap; src: url('/fonts/rajdhani-700.woff2') format('woff2'); }
+
+@theme {
+	--font-sans: 'Rajdhani', sans-serif;
+
+	/* Theme palette — all mapped to CSS custom properties set by applyTheme() */
+	--color-base: var(--theme-bg, #0a0a0a);
+	--color-surface: var(--theme-surface, #171717);
+	--color-surface-hover: var(--theme-surface-hover, #262626);
+	--color-base-border: var(--theme-border, #262626);
+	--color-base-text: var(--theme-text, #e5e5e5);
+	--color-base-text-muted: var(--theme-text-muted, #737373);
+	--color-accent: var(--theme-accent, #f59e0b);
+	--color-accent-muted: var(--theme-accent-muted, rgba(245,158,11,0.15));
+}
+
+body {
+	font-family: 'Rajdhani', sans-serif;
+	background-color: var(--theme-bg, #0a0a0a);
+	color: var(--theme-text, #e5e5e5);
+}
+
+/* Hide scrollbar visuals globally — scrolling still works */
+* {
+	scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+	display: none;
+}
+
+/* Wiki link styles */
+.wiki-link {
+	display: inline;
+	padding: 1px 6px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-weight: 600;
+	text-decoration: none;
+	transition: opacity 0.15s;
+}
+.wiki-link:hover { opacity: 0.8; }
+.wiki-link--entry {
+	background: rgba(129, 140, 248, 0.15);
+	color: #818cf8;
+}
+.wiki-link--word {
+	background: var(--theme-accent-muted, rgba(245, 158, 11, 0.15));
+	color: var(--theme-accent, #f59e0b);
+}
+
+/* Wiki suggestion popup */
+.wiki-suggestion-popup {
+	background: var(--theme-surface, #1f2937);
+	border: 1px solid var(--theme-border, #374151);
+	border-radius: 8px;
+	padding: 4px;
+	min-width: 200px;
+	max-width: 320px;
+	max-height: 240px;
+	overflow-y: auto;
+	box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.wiki-suggestion-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 6px 10px;
+	border-radius: 5px;
+	border: none;
+	background: transparent;
+	color: var(--theme-text, #d1d5db);
+	font-size: 13px;
+	cursor: pointer;
+	text-align: left;
+	font-family: 'Rajdhani', sans-serif;
+}
+.wiki-suggestion-item:hover, .wiki-suggestion-item.is-selected {
+	background: var(--theme-accent-muted, rgba(245, 158, 11, 0.1));
+	color: var(--theme-accent, #fbbf24);
+}
+.wiki-suggestion-type {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 4px;
+	font-size: 10px;
+	font-weight: 700;
+	flex-shrink: 0;
+}
+.wiki-suggestion-item .wiki-suggestion-type {
+	background: rgba(129, 140, 248, 0.2);
+	color: #818cf8;
+}
+.wiki-suggestion-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.wiki-suggestion-empty {
+	padding: 8px 12px;
+	color: var(--theme-text-muted, #6b7280);
+	font-size: 12px;
+	font-style: italic;
+}

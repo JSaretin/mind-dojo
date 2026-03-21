@@ -102,11 +102,11 @@ export class SavedWordDB {
         });
     }
 
-    async getAllWords(): Promise<SavedWord[]> {
+    async getAllWords(sortBy: 'lastSeen' | 'createdAt' = 'lastSeen'): Promise<SavedWord[]> {
         await this.init();
         return new Promise((resolve, reject) => {
             const store = this.getStore('readonly');
-            const index = store.index('createdAt');
+            const index = store.index(sortBy);
             const request = index.openCursor(null, 'prev'); // 'prev' for descending order (newest first)
             const words: SavedWord[] = [];
 
@@ -117,6 +117,56 @@ export class SavedWordDB {
                     cursor.continue();
                 } else {
                     resolve(words);
+                }
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getRecentWords(limit = 12, dictionaryOnly = false): Promise<string[]> {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const store = this.getStore('readonly');
+            const index = store.index('lastSeen');
+            const request = index.openCursor(null, 'prev');
+            const results: string[] = [];
+
+            request.onsuccess = (event) => {
+                const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+                if (cursor && results.length < limit) {
+                    const record = cursor.value;
+                    const word: string = record.word?.word || '';
+                    if (word && (!dictionaryOnly || record.word?.meanings?.length > 0)) {
+                        results.push(word);
+                    }
+                    cursor.continue();
+                } else {
+                    resolve(results);
+                }
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async searchWords(query: string, limit = 12, dictionaryOnly = false): Promise<string[]> {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const store = this.getStore('readonly');
+            const request = store.openCursor();
+            const results: string[] = [];
+            const q = query.toLowerCase();
+
+            request.onsuccess = (event) => {
+                const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+                if (cursor && results.length < limit) {
+                    const record = cursor.value;
+                    const word: string = record.word?.word || '';
+                    if (word.toLowerCase().includes(q) && (!dictionaryOnly || record.word?.meanings?.length > 0)) {
+                        results.push(word);
+                    }
+                    cursor.continue();
+                } else {
+                    resolve(results);
                 }
             };
             request.onerror = () => reject(request.error);

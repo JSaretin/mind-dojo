@@ -15,7 +15,6 @@
 		{ family: 'Oi', weights: '', cssVar: '--font-oi' }
 	];
 
-	// Function to build Google Fonts URL
 	function buildFontUrl(family: string, weights: string) {
 		return `https://fonts.googleapis.com/css2?family=${family}${weights ? ':' + weights : ''}&display=swap`;
 	}
@@ -23,8 +22,6 @@
 	const cssVariables = fonts
 		.map(({ family, cssVar }) => `${cssVar}: '${family.replace(/\+/g, ' ')}', sans-serif;`)
 		.join('\n');
-
-	let isDarkMode = $state(Boolean(localStorage.getItem('mode') || ''));
 </script>
 
 <svelte:head>
@@ -38,18 +35,6 @@
 	</style>
 </svelte:head>
 
-<div class={'relative h-screen w-full ' + (isDarkMode ? 'bg-neutral-800' : 'bg-amber-50')}>
-	<div class="absolute right-4 bottom-8 z-50 w-5 object-contain">
-		<button
-			class="cursor-pointer"
-			onclick={() => {
-				isDarkMode = !isDarkMode;
-				localStorage.setItem('mode', isDarkMode ? '1' : '');
-			}}
-		>
-			<img src="/on.webp" alt="On" class={'' + (!isDarkMode ? 'hidden' : '')} />
-			<img src="/off.png" alt="Dark" class={'' + (!isDarkMode ? '' : 'hidden')} />
-		</button>
-	</div>
+<div class="relative h-screen w-full">
 	{@render children()}
 </div>

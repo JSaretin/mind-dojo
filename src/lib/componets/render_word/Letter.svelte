@@ -28,40 +28,48 @@
 
 	// Generate stable base classes per letter, but consider settings to control randomness
 
-	function getStyle(baseClass: string) {
+	function getStyleAndInline(baseClass: string): { cls: string; inline: string } {
 		const isFullWord = settings.displayMode === 'full-word';
 
 		// Current letter being typed
 		if (letterIndex === typedLetterIndex) {
-			const color = isFullWord
-				? 'text-neutral-100'
-				: settings.letterStyle?.randomColor
-					? getRandomColor()
-					: 'text-black';
-			return `${baseClass} ${color}`;
+			if (!isFullWord && settings.letterStyle?.randomColor) {
+				const color = getRandomColor();
+				return { cls: `${baseClass} ${color}`, inline: `filter: drop-shadow(0 0 12px var(--theme-letter-glow, rgba(251,191,36,0.4)));` };
+			}
+			return {
+				cls: baseClass,
+				inline: `color: var(--theme-letter-active, #fef3c7); filter: drop-shadow(0 0 12px var(--theme-letter-glow, rgba(251,191,36,0.4)));`,
+			};
 		}
 
 		// Letter not yet typed
 		if (!typedLetter) {
-			const style = isFullWord ? 'text-neutral-600' : 'opacity-0';
-			return `${baseClass} ${style}`;
+			if (isFullWord) {
+				return { cls: baseClass, inline: `color: var(--theme-letter-untyped, #404040);` };
+			}
+			return { cls: `${baseClass} opacity-0`, inline: '' };
 		}
 
 		// Letter has been typed
 		const isCorrect = typedLetter === letter;
-		const color = isCorrect ? (isFullWord ? 'text-green-400' : 'text-neutral-700') : 'text-red-400';
 		let visibility = 'opacity-40';
 		if (settings.hideTypedLetter && !isFullWord) {
 			visibility = 'opacity-0';
 		}
-
-		return `${baseClass} ${color} ${visibility}`;
+		if (!isCorrect) {
+			return { cls: `${baseClass} text-red-400 ${visibility}`, inline: '' };
+		}
+		return { cls: `${baseClass} ${visibility}`, inline: `color: var(--theme-letter-typed, #525252);` };
 	}
 
 	let style = $state('');
+	let inlineStyle = $state('');
 
 	$effect(() => {
-		style = getStyle(baseStyle);
+		const result = getStyleAndInline(baseStyle);
+		style = result.cls;
+		inlineStyle = result.inline;
 
 		if (letterIndex !== typedLetterIndex) return;
 		if (!settings.voice.focusOnVoice) return;
@@ -71,7 +79,7 @@
 </script>
 
 <div class="flex place-items-center justify-center align-middle">
-	<h1 class={style}>
+	<h1 class={style} style={inlineStyle}>
 		{displayLetter}
 	</h1>
 </div>

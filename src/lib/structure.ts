@@ -13,6 +13,12 @@ export interface Word {
 
 export type Words = Word[];
 
+export interface TypingFlow {
+    letterIntervals: number[]; // ms between each keystroke (first is time-to-first-key)
+    totalDuration: number;     // total ms from word shown to last keystroke
+    timestamp: number;         // when this attempt happened
+    correct: boolean;          // whether the word was typed correctly
+}
 
 export interface SavedWord {
     word: Word;
@@ -27,6 +33,7 @@ export interface SavedWord {
         description: string;
         tag: string[]
     };
+    typingFlows: TypingFlow[];
     createdAt: number;
 }
 
@@ -95,5 +102,8 @@ export interface MindDojoSettings {
     saveTypedWord: boolean;
     typeRestartLevelOnErrorOnLevelCompletion: boolean;
     displayLetterInUpperCase: boolean;
+    stealthTimer: boolean;
+    sessionDuration: number; // minutes, 0 = unlimited
+    restDuration: number;    // minutes, 0 = skip rest
     // focusKeys: FocusKeys
 }

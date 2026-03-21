@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SavedWord } from '$lib/structure';
+	import TypingFlowChart from './TypingFlowChart.svelte';
 
 	let {
 		saved = $bindable(),
@@ -8,6 +9,9 @@
 
 	let showBack = $state(false);
 	let showMore = $state(false);
+
+	let totalAttempts = $derived(saved.stats.correctlyTyped + saved.stats.wronglyTyped);
+	let errorRate = $derived(totalAttempts > 0 ? saved.stats.wronglyTyped / totalAttempts : 0);
 	let showFullJournal = $state(false);
 	let currentDescription = $derived(saved.jounal.description ?? '');
 	let currentTags = $state(saved.jounal.tag.join(','));
@@ -19,7 +23,6 @@
 
 	function toggleCard() {
 		showBack = !showBack;
-		// Reset the editable content when opening edit mode
 		if (showBack) {
 			currentDescription = saved.jounal.description ?? '';
 			currentTags = saved.jounal.tag?.join(', ') ?? '';
@@ -35,8 +38,6 @@
 	}
 
 	async function saveJournal() {
-		// Ensure we save plain text, not HTML
-		// const plainTextDescription = currentDescription;
 		currentDescription = currentDescription.trim();
 		if (currentDescription == '<br>') {
 			currentDescription = '';
@@ -52,30 +53,15 @@
 		toggleCard();
 	}
 
-	// Get truncated journal text for preview
 	function getTruncatedJournal(text: string, maxLength: number = 150): string {
 		if (text.length <= maxLength) return text;
 		return text.substring(0, maxLength).trim() + '...';
 	}
-
-	// Handle wheel events for scrollable containers
-	function handleWheel(event: WheelEvent) {
-		const target = event.currentTarget as HTMLElement;
-		const { scrollTop, scrollHeight, clientHeight } = target;
-
-		// Check if we can scroll in the direction of the wheel
-		const canScrollUp = scrollTop > 0;
-		const canScrollDown = scrollTop < scrollHeight - clientHeight;
-
-		if ((event.deltaY < 0 && canScrollUp) || (event.deltaY > 0 && canScrollDown)) {
-			event.stopPropagation();
-		}
-	}
 </script>
 
 <div
-	class="relative overflow-hidden rounded-lg border border-neutral-700 bg-neutral-800 p-3 shadow-sm transition hover:border-amber-500"
-	style="min-height: fit-content;"
+	class="relative overflow-hidden rounded-lg border bg-surface-hover p-3 shadow-sm transition hover:border-accent"
+	style="min-height: fit-content; border-color: #404040;"
 >
 	<!-- Flip Container -->
 	<div
@@ -91,7 +77,9 @@
 		>
 			<!-- Word Header -->
 			<div class="mb-1 flex items-start justify-between">
-				<h3 class="text-base font-semibold text-amber-100">{saved.word.word}</h3>
+				<div class="flex items-center gap-2">
+					<h3 class="text-base font-semibold text-base-text">{saved.word.word}</h3>
+				</div>
 				<div class="flex items-center gap-2">
 					{#if saved.stats.starred}
 						<span class="text-sm text-yellow-400">★</span>
@@ -101,15 +89,15 @@
 			</div>
 
 			<!-- Main Meaning -->
-			<p class="mb-2 text-sm text-neutral-400">
+			<p class="mb-2 text-sm text-base-text-muted">
 				{saved.word.meanings?.[0]?.[1] || 'No definition available'}
 			</p>
 
 			<!-- Journal Section -->
 			{#if currentDescription}
-				<div class="mt-3 border-t border-neutral-700 pt-3">
+				<div class="mt-3 border-t border-base-border pt-3">
 					<div class="mb-2 flex items-center justify-between">
-						<h4 class="text-xs font-semibold tracking-wide text-amber-200 uppercase">Journal</h4>
+						<h4 class="text-xs font-semibold tracking-wide text-accent uppercase">Journal</h4>
 						{#if hasLongJournal}
 							<button onclick={toggleJournal} class="text-xs text-blue-400 hover:underline">
 								{showFullJournal ? 'Show Less' : 'Show More'}
@@ -117,16 +105,13 @@
 						{/if}
 					</div>
 
-					<div class="journal-content text-xs leading-relaxed text-amber-100">
+					<div class="journal-content text-xs leading-relaxed text-base-text">
 						{#if showFullJournal || !hasLongJournal}
-							<div
-								class="custom-scrollbar scroll-container max-h-32 overflow-y-auto pr-1"
-								onwheel={handleWheel}
-							>
+							<div class="pr-1">
 								{@html saved.jounal.description ?? ''}
 							</div>
 						{:else}
-							<p class="text-amber-100/90">
+							<p class="text-base-text/90">
 								{@html getTruncatedJournal(saved.jounal.description ?? '')}
 							</p>
 						{/if}
@@ -137,7 +122,7 @@
 						<div class="mt-2 flex flex-wrap gap-1">
 							{#each saved.jounal.tag as tag}
 								<span
-									class="rounded-full border border-amber-600/30 bg-amber-600/20 px-2 py-0.5 text-xs text-amber-300"
+									class="rounded-full border border-accent/30 bg-accent-muted px-2 py-0.5 text-xs text-accent"
 								>
 									#{tag}
 								</span>
@@ -155,19 +140,18 @@
 			<!-- Expanded Full Word Details -->
 			{#if showMore}
 				<div
-					class="custom-scrollbar scroll-container mt-3 max-h-48 space-y-3 overflow-y-auto text-xs text-neutral-400"
-					onwheel={handleWheel}
+					class="mt-3 space-y-3 text-xs text-base-text-muted"
 				>
 					{#each saved.word.meanings as meaning (meaning[0] + meaning[1])}
-						<div class="border-b border-neutral-700 pb-2 last:border-0">
+						<div class="border-b border-base-border pb-2 last:border-0">
 							<span
-								class="inline-block rounded-md border border-neutral-600 px-2 py-0.5 text-xs font-bold text-amber-200"
+								class="inline-block rounded-md border border-base-border px-2 py-0.5 text-xs font-bold text-accent"
 								>{meaning[0]}</span
 							>
 							<p class="mt-1">{meaning[1]}</p>
 
 							{#if meaning[3]?.length > 0}
-								<div class="mt-1 space-y-1 text-amber-400 italic">
+								<div class="mt-1 space-y-1 text-accent italic">
 									{#each meaning[3] as example}
 										<p>"{example}"</p>
 									{/each}
@@ -189,7 +173,7 @@
 					<!-- Antonyms -->
 					{#if saved.word.antonyms.length > 0}
 						<div class="mt-2 flex flex-wrap gap-1">
-							<span class="font-bold text-amber-200">Antonyms:</span>
+							<span class="font-bold text-accent">Antonyms:</span>
 							{#each saved.word.antonyms as ant}
 								<span class="rounded bg-red-600 px-2 py-0.5 text-xs font-semibold text-white"
 									>{ant}</span
@@ -200,12 +184,17 @@
 				</div>
 			{/if}
 
+			<!-- Typing Flow Chart -->
+			{#if saved.typingFlows?.length > 0}
+				<TypingFlowChart flows={saved.typingFlows} word={saved.word.word} />
+			{/if}
+
 			<!-- Stats -->
 			<div
-				class="mt-4 flex items-center justify-between rounded-md bg-neutral-700/30 p-3 text-sm font-semibold"
+				class="mt-4 flex items-center justify-between rounded-md bg-surface-hover/30 p-3 text-sm font-semibold"
 			>
-				<span class="text-neutral-300"
-					>Seen: <span class="text-amber-300">{saved.stats.seen}</span></span
+				<span class="text-base-text"
+					>Seen: <span class="text-accent">{saved.stats.seen}</span></span
 				>
 				<div class="flex items-center gap-3">
 					<span class="text-green-400">✓ {saved.stats.correctlyTyped}</span>
@@ -222,14 +211,13 @@
 				? 'position: relative;'
 				: 'position: absolute; top: 0; left: 0; right: 0;'}"
 		>
-			<div class="flex flex-col gap-3 rounded-lg border border-amber-500 bg-neutral-900 p-4">
-				<h4 class="text-sm font-semibold text-amber-200">Edit Journal Entry</h4>
+			<div class="flex flex-col gap-3 rounded-lg border border-accent bg-surface p-4">
+				<h4 class="text-sm font-semibold text-accent">Edit Journal Entry</h4>
 
 				<div
 					contenteditable
-					class="custom-scrollbar scroll-container max-h-[250px] min-h-[100px] overflow-y-auto rounded border border-neutral-700 bg-neutral-800 p-3 text-sm text-amber-100 outline-none focus:border-amber-500"
+					class="min-h-[100px] rounded border border-base-border bg-surface-hover p-3 text-sm text-base-text outline-none focus:border-accent"
 					placeholder="Write your thoughts about this word..."
-					onwheel={handleWheel}
 					bind:innerHTML={currentDescription}
 				></div>
 
@@ -237,7 +225,7 @@
 					type="text"
 					bind:value={currentTags}
 					placeholder="Tags (comma separated)"
-					class="w-full rounded border border-neutral-700 bg-neutral-800 p-2 text-xs text-amber-100 outline-none focus:border-amber-500"
+					class="w-full rounded border border-base-border bg-surface-hover p-2 text-xs text-base-text outline-none focus:border-accent"
 				/>
 
 				<div class="flex justify-between text-xs">
@@ -270,42 +258,6 @@
 		line-height: 1.5;
 	}
 
-	.scroll-container {
-		/* Ensure the container can receive focus for keyboard navigation */
-		outline: none;
-	}
-
-	.scroll-container:focus {
-		/* Optional: add focus indicator */
-		box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.3);
-	}
-
-	.custom-scrollbar {
-		scrollbar-width: thin;
-		scrollbar-color: #d97706 #374151;
-		/* Ensure smooth scrolling */
-		scroll-behavior: smooth;
-	}
-
-	.custom-scrollbar::-webkit-scrollbar {
-		width: 6px;
-	}
-
-	.custom-scrollbar::-webkit-scrollbar-track {
-		background: #374151;
-		border-radius: 3px;
-	}
-
-	.custom-scrollbar::-webkit-scrollbar-thumb {
-		background: #d97706;
-		border-radius: 3px;
-		min-height: 20px;
-	}
-
-	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-		background: #f59e0b;
-	}
-
 	[contenteditable]:empty:before {
 		content: attr(placeholder);
 		color: #6b7280;
@@ -316,7 +268,6 @@
 		outline: none;
 	}
 
-	/* Ensure proper line height for contenteditable */
 	[contenteditable] {
 		white-space: pre-wrap;
 		word-wrap: break-word;

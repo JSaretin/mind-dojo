@@ -2,24 +2,49 @@
   "name": "mind-dojo",
   "private": true,
   "version": "0.0.1",
+  "description": "Mind training dojo - typing focus trainer",
+  "author": "John",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
+    "electron:dev": "VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "electron:build": "vite build && electron-builder --linux",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "format": "prettier --write .",
     "lint": "prettier --check . && eslint ."
   },
+  "build": {
+    "appId": "com.minddojo.app",
+    "productName": "Mind Dojo",
+    "icon": "static/fav_512.png",
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Education",
+      "icon": "static/fav_512.png"
+    },
+    "files": [
+      "build/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "dist-electron"
+    }
+  },
   "devDependencies": {
     "@eslint/compat": "^1.2.5",
     "@eslint/js": "^9.18.0",
     "@sveltejs/adapter-node": "^5.2.12",
+    "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.22.0",
     "@sveltejs/vite-plugin-svelte": "^6.0.0",
     "@tailwindcss/vite": "^4.0.0",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-svelte": "^3.0.0",
@@ -36,6 +61,10 @@
   },
   "dependencies": {
     "@sveltejs/adapter-vercel": "^6.2.0",
-    "electron": "^38.0.0"
+    "@tiptap/core": "^3.20.4",
+    "@tiptap/extension-mention": "^3.20.4",
+    "@tiptap/pm": "^3.20.4",
+    "@tiptap/starter-kit": "^3.20.4",
+    "@tiptap/suggestion": "^3.20.4"
   }
 }

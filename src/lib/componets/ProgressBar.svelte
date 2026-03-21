@@ -2,66 +2,49 @@
 	import type { MindDojo } from '$lib/mind-dojo.svelte';
 	import { getContext } from 'svelte';
 
-	const mindDojo: MindDojo = getContext('mindDojo');
+	const getMindDojo: () => MindDojo = getContext('mindDojo');
+	let mindDojo = $derived(getMindDojo());
 
 	let progress = $derived(mindDojo.dojoState.progress);
 	let speed = $derived(mindDojo.settings.speed || 0);
+	let wpm = $derived(((speed || 0) * 12).toFixed(1));
 
-	let progressColor = $derived(
-		progress >= 80 ? 'bg-red-500' : progress >= 50 ? 'bg-yellow-400' : 'bg-green-400'
+	// Color shifts as progress builds — green to amber to red
+	let barColor = $derived(
+		progress >= 80 ? '#ef4444' : progress >= 50 ? '#f59e0b' : '#22c55e'
 	);
-
-	let pulseClass = $derived(progress >= 80 ? 'animate-[pulse-speed_1s_infinite]' : '');
+	let glowColor = $derived(
+		progress >= 80 ? 'rgba(239,68,68,0.4)' : progress >= 50 ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.2)'
+	);
 </script>
 
-<!-- Keyboard Hint -->
-<!-- {#if allowGame}
-	<div class="absolute bottom-0 left-1/2 -translate-x-1/2 -translate-y-full">
+<div class="fixed bottom-0 left-0 z-20 w-full">
+	<!-- Thin progress line -->
+	<div class="relative h-1 w-full bg-surface-hover/50">
 		<div
-			class="rounded-lg border border-neutral-700/50 bg-neutral-800/50 px-4 py-2 backdrop-blur-sm"
-		>
-			<p class="text-xs text-neutral-400">
-				{#if mindDojo.settings.displayMode === 'letter-by-letter'}
-					Type each letter as it appears
-				{:else}
-					Type the complete word
-				{/if}
-			</p>
-		</div>
-	</div>
-{/if} -->
-
-<div class="fixed bottom-0 left-0 w-full bg-neutral-900">
-	<div class="relative h-6 w-full overflow-hidden rounded-sm">
-		<!-- Progress Fill -->
-		<div
-			class={`h-full transition-all duration-200 ease-linear ${progressColor}`}
-			style:width={`${progress}%`}
+			class="h-full transition-all duration-200 ease-out"
+			style="width: {progress}%; background: {barColor}; box-shadow: 0 0 8px {glowColor};"
 		></div>
+	</div>
 
-		<!-- Speed Display -->
-		<div
-			class={`absolute inset-0 flex items-center justify-center text-sm font-bold text-amber-50 transition-transform duration-200 ${pulseClass}`}
-		>
-			<!-- {speed.toFixed(1)} -->
-			<div class="flex place-items-center justify-center gap-4 text-center align-middle">
-				<div class="text-xs text-neutral-400">Speed</div>
-				<div class="text-lg font-bold text-green-400">
-					({((speed || 0) * 12).toFixed(2)} WPM)
-				</div>
-			</div>
+	<!-- Stats row -->
+	<div class="flex items-center justify-between bg-surface/80 px-4 py-1 backdrop-blur-sm">
+		<!-- Progress -->
+		<div class="flex items-center gap-2">
+			<span class="text-[10px] text-base-text-muted">Level</span>
+			<span class="font-mono text-xs font-bold" style="color: {barColor};">{progress}%</span>
+		</div>
+
+		<!-- WPM center -->
+		<div class="flex items-center gap-1.5">
+			<span class="font-mono text-sm font-bold text-base-text">{wpm}</span>
+			<span class="text-[10px] text-base-text-muted">WPM</span>
+		</div>
+
+		<!-- Speed multiplier -->
+		<div class="flex items-center gap-1.5">
+			<span class="text-[10px] text-base-text-muted">Speed</span>
+			<span class="font-mono text-xs text-base-text">{speed.toFixed(2)}x</span>
 		</div>
 	</div>
 </div>
-
-<style>
-	@keyframes pulse-speed {
-		0%,
-		100% {
-			transform: scale(1);
-		}
-		50% {
-			transform: scale(1.15);
-		}
-	}
-</style>

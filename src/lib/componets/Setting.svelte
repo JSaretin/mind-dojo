@@ -1,335 +1,453 @@
 <script lang="ts">
 	import type { MindDojoSettings } from '$lib/structure';
+	import { themes, applyTheme, loadTheme } from '$lib/theme';
+	import { getContext } from 'svelte';
+	import type { MindDojo } from '$lib/mind-dojo.svelte';
 
 	let { settings = $bindable() }: { settings: MindDojoSettings } = $props();
+	const getMindDojo: () => MindDojo = getContext('mindDojo');
+	let mindDojo = $derived(getMindDojo());
+	let currentTheme = $state(loadTheme());
 
 	const displayModes = ['letter-by-letter', 'full-word'] as const;
 	const letterDisplayOptions = ['left-to-right', 'center'] as const;
 	const numberModes = ['smart', 'random'] as const;
+
+	let activeTab: 'core' | 'chaos' | 'style' | 'audio' | 'ui' | 'theme' = $state('core');
+
+	const tabs = [
+		{ key: 'core' as const, label: 'Core', icon: '&#9889;' },
+		{ key: 'chaos' as const, label: 'Chaos', icon: '&#127918;' },
+		{ key: 'style' as const, label: 'Style', icon: '&#9998;' },
+		{ key: 'audio' as const, label: 'Audio', icon: '&#9835;' },
+		{ key: 'ui' as const, label: 'UI', icon: '&#9881;' },
+		{ key: 'theme' as const, label: 'Theme', icon: '&#9728;' },
+	];
 </script>
 
-<section class="mx-auto max-w-2xl space-y-6 rounded-md p-4 text-neutral-500 shadow">
-	<h2 class="text-xl font-bold text-neutral-950">MindDojo Settings</h2>
-
-	<!-- Speed -->
-	<div>
-		<label class="mb-1 block font-semibold" for="speed"
-			>Typing Speed (higher = faster) ({((settings.speed || 0) * 12).toFixed(2)} WPM)</label
+<!-- Tab bar -->
+<div class="mb-6 flex gap-1 rounded-lg bg-surface-hover p-1">
+	{#each tabs as tab}
+		<button
+			onclick={() => (activeTab = tab.key)}
+			class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-all {activeTab === tab.key
+				? 'bg-accent text-black shadow-lg shadow-accent/20'
+				: 'text-base-text-muted hover:bg-surface-hover hover:text-accent'}"
 		>
-		<input
-			type="number"
-			min="0.1"
-			step="0.1"
-			bind:value={settings.speed}
-			class="w-full rounded border p-2"
-			id="speed"
-		/>
-	</div>
+			<span class="text-base">{@html tab.icon}</span>
+			<span>{tab.label}</span>
+		</button>
+	{/each}
+</div>
 
-	<!-- Same Letter Delay -->
-	<div>
-		<label class="mb-1 block font-semibold" for="sameLetterDelayPercent">Same Letter Delay %</label>
-		<input
-			type="range"
-			min="0"
-			max="100"
-			bind:value={settings.sameLetterDelayPercent}
-			class="w-full"
-			id="sameLetterDelayPercent"
-		/>
-		<p class="text-sm text-neutral-600">{settings.sameLetterDelayPercent}%</p>
-	</div>
+<div class="space-y-5">
+	<!-- CORE TAB -->
+	{#if activeTab === 'core'}
+		<!-- Speed -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<div class="mb-3 flex items-center justify-between">
+				<span class="text-sm font-bold text-accent">Typing Speed</span>
+				<span class="rounded-md bg-accent-muted px-2 py-0.5 font-mono text-sm font-bold text-accent">
+					{((settings.speed || 0) * 12).toFixed(1)} WPM
+				</span>
+			</div>
+			<input
+				type="number"
+				min="0.1"
+				step="0.1"
+				bind:value={settings.speed}
+				class="w-full rounded-md border border-base-border bg-surface px-3 py-2 font-mono text-base-text focus:border-accent focus:outline-none"
+			/>
+		</div>
 
-	<!-- Exclude Letters -->
-	<div>
-		<label class="mb-1 block font-semibold" for="excludeLetters">Exclude Letters</label>
-		<input
-			type="text"
-			bind:value={settings.excludeLetters}
-			placeholder="e.g. abcxyz"
-			class="w-full rounded border p-2"
-			id="excludeLetters"
-		/>
-	</div>
+		<!-- Same Letter Delay -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<div class="mb-2 flex items-center justify-between">
+				<span class="text-sm font-bold text-accent">Same Letter Delay</span>
+				<span class="font-mono text-sm text-base-text">{settings.sameLetterDelayPercent}%</span>
+			</div>
+			<input
+				type="range" min="0" max="100"
+				bind:value={settings.sameLetterDelayPercent}
+				class="w-full accent-accent"
+			/>
+		</div>
 
-	<!-- Game Mode Setting -->
-	<div class="space-y-2">
-		<p class="font-semibold">Chaos Mode Settings</p>
+		<!-- Display Mode -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Display Mode</span>
+			<div class="flex gap-2">
+				{#each displayModes as mode}
+					<button
+						onclick={() => (settings.displayMode = mode)}
+						class="flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all {settings.displayMode === mode
+							? 'border-accent bg-accent-muted text-accent'
+							: 'border-base-border text-base-text-muted hover:border-accent/50 hover:text-accent'}"
+					>
+						{mode === 'letter-by-letter' ? 'Letter by Letter' : 'Full Word'}
+					</button>
+				{/each}
+			</div>
+		</div>
 
-		<label>
-			<input type="checkbox" bind:checked={settings.franticMode} /> Enable Chaos Mode
-		</label>
-		<br />
+		<!-- Word Settings -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Word Length</span>
+			<div class="grid grid-cols-2 gap-4">
+				<div>
+					<div class="mb-1 flex justify-between text-xs text-base-text-muted">
+						<span>Min</span>
+						<span class="font-mono text-accent">{settings.minWordLength}</span>
+					</div>
+					<input type="range" min="1" max="30" bind:value={settings.minWordLength} class="w-full accent-accent" />
+				</div>
+				<div>
+					<div class="mb-1 flex justify-between text-xs text-base-text-muted">
+						<span>Max</span>
+						<span class="font-mono text-accent">{settings.maxWordLength}</span>
+					</div>
+					<input type="range" min="1" max="30" bind:value={settings.maxWordLength} class="w-full accent-accent" />
+				</div>
+			</div>
+
+			<div class="mt-4 space-y-2">
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.joinRandomLetters} class="accent-accent" />
+					<span class="text-sm text-base-text">Random letter words</span>
+				</label>
+				{#if settings.joinRandomLetters}
+					<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 pl-8 transition-colors hover:bg-surface-hover/50">
+						<input type="checkbox" bind:checked={settings.mixJoinRandomLetters} class="accent-accent" />
+						<span class="text-sm text-base-text">Mix with real words</span>
+					</label>
+				{/if}
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.randomlyMoveWordStarting} class="accent-accent" />
+					<span class="text-sm text-base-text">Random X position</span>
+				</label>
+			</div>
+		</div>
+
+		<!-- Exclude Letters -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-2 block text-sm font-bold text-accent">Exclude Letters</span>
+			<input
+				type="text"
+				bind:value={settings.excludeLetters}
+				placeholder="e.g. abcxyz"
+				class="w-full rounded-md border border-base-border bg-surface px-3 py-2 text-sm text-base-text placeholder:text-base-text-muted focus:border-accent focus:outline-none"
+			/>
+		</div>
+
+		<!-- Word Mix -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Word Mix</span>
+			<div class="space-y-2">
+				{#each [
+					{ label: 'Include numbers', bind: () => settings.wordMix.includeNumbers, set: (v: boolean) => settings.wordMix.includeNumbers = v },
+					{ label: 'Include uppercase', bind: () => settings.wordMix.includeUppercase, set: (v: boolean) => settings.wordMix.includeUppercase = v },
+					{ label: 'Include lowercase', bind: () => settings.wordMix.includeLowercase, set: (v: boolean) => settings.wordMix.includeLowercase = v },
+				] as item}
+					<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+						<input type="checkbox" checked={item.bind()} onchange={(e) => item.set((e.target as HTMLInputElement).checked)} class="accent-accent" />
+						<span class="text-sm text-base-text">{item.label}</span>
+					</label>
+				{/each}
+			</div>
+			<div class="mt-3 flex gap-2">
+				{#each numberModes as mode}
+					<button
+						onclick={() => (settings.wordMix.numberMode = mode)}
+						class="flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-all {settings.wordMix.numberMode === mode
+							? 'border-accent bg-accent-muted text-accent'
+							: 'border-base-border text-base-text-muted hover:border-accent/50'}"
+					>
+						{mode.charAt(0).toUpperCase() + mode.slice(1)}
+					</button>
+				{/each}
+			</div>
+		</div>
+
+	<!-- CHAOS TAB -->
+	{:else if activeTab === 'chaos'}
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<label class="flex cursor-pointer items-center gap-3">
+				<input type="checkbox" checked={settings.franticMode} onchange={(e) => {
+					const checked = (e.target as HTMLInputElement).checked;
+					if (checked) {
+						mindDojo.enableChaosMode();
+						settings = mindDojo.settings;
+					} else {
+						mindDojo.disableChaosMode();
+						settings = mindDojo.settings;
+					}
+				}} class="h-5 w-5 accent-red-500" />
+				<div>
+					<span class="text-sm font-bold text-red-400">Enable Chaos Mode</span>
+					<p class="text-xs text-base-text-muted">Randomly mutates settings every word</p>
+				</div>
+			</label>
+		</div>
 
 		{#if settings.franticMode}
-			<!-- Select / Deselect All -->
-			<label>
-				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeDisplayMode} />
-				Toggle Word Display Mode
-			</label>
-			<br />
-
-			<label>
-				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeLetterStyle} />
-				Randomize Letter Style
-			</label>
-			<br />
-
-			<label>
-				<input
-					type="checkbox"
-					bind:checked={settings.franticSettings.shouldChangeProgressBarVisibility}
-				/>
-				Toggle Progress Bar Visibility
-			</label>
-			<br />
-
-			<label>
-				<input
-					type="checkbox"
-					bind:checked={settings.franticSettings.shouldChangeTimerVisibility}
-				/>
-				Toggle Timer Visibility
-			</label>
-			<br />
-
-			<label>
-				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeRestartOnError} />
-				Toggle Restart on Error
-			</label>
-			<br />
-
-			<label>
-				<input
-					type="checkbox"
-					bind:checked={settings.franticSettings.shouldChangeRandomWordPosition}
-				/>
-				Randomize Word Position
-			</label>
-			<br />
-
-			<label>
-				<input
-					type="checkbox"
-					bind:checked={settings.franticSettings.shouldChangeHideTypedLetter}
-				/>
-				Toggle Hide Typed Letter
-			</label>
-			<br />
-
-			<label>
-				<input type="checkbox" bind:checked={settings.franticSettings.shouldChangeWordLength} />
-				Randomize Word Length
-			</label>
-			<br />
-		{/if}
-	</div>
-
-	<!-- Display Mode -->
-	<div>
-		<label class="mb-1 block font-semibold" for="displayMode">Display Mode</label>
-		<select bind:value={settings.displayMode} class="w-full rounded border p-2" id="displayMode">
-			{#each displayModes as mode}
-				<option value={mode}>{mode}</option>
-			{/each}
-		</select>
-	</div>
-
-	<!-- Level Setting / Toggle -->
-	<div class="space-y-2">
-		<p class="font-semibold">Word Setting</p>
-		<div>
-			<label class="mb-1 block font-semibold" for="minWordLenth">Min Word Length</label>
-			<input
-				type="range"
-				min="1"
-				max="30"
-				bind:value={settings.minWordLength}
-				class="w-full"
-				id="minWordLenth"
-			/>
-			<p class="text-sm text-neutral-600">{settings.minWordLength}</p>
-		</div>
-		<div>
-			<label class="mb-1 block font-semibold" for="maxWordLenth">Max Word Length</label>
-			<input
-				type="range"
-				min="1"
-				max="30"
-				bind:value={settings.maxWordLength}
-				class="w-full"
-				id="maxWordLenth"
-			/>
-			<p class="text-sm text-neutral-600">{settings.maxWordLength}</p>
-		</div>
-		<label>
-			<input type="checkbox" bind:checked={settings.joinRandomLetters} /> Join Random Letter To Make
-			A Word
-		</label>
-		<br />
-		{#if settings.joinRandomLetters}
-			<label>
-				<input type="checkbox" bind:checked={settings.mixJoinRandomLetters} /> Mix Random Word With Normal
-				Word
-			</label>
-			<br />
-		{/if}
-		<label>
-			<input type="checkbox" bind:checked={settings.randomlyMoveWordStarting} /> Position Word Randomly
-			On X Axis
-		</label>
-	</div>
-
-	<!-- Letter Style Settings (only if letter-by-letter) -->
-	{#if settings.displayMode === 'letter-by-letter'}
-		<div class="space-y-2">
-			<p class="font-semibold">Letter Style</p>
-			<label>
-				<input type="checkbox" bind:checked={settings.letterStyle.randomSize} /> Random Size
-			</label>
-			<br />
-			<label>
-				<input type="checkbox" bind:checked={settings.letterStyle.randomWeight} /> Random Weight
-			</label>
-			<br />
-			<label>
-				<input type="checkbox" bind:checked={settings.letterStyle.randomFont} /> Random Font
-			</label>
-			<br />
-			<label>
-				<input type="checkbox" bind:checked={settings.letterStyle.randomTransform} /> Random Transform
-			</label>
-			<br />
-			<label>
-				<input type="checkbox" bind:checked={settings.letterStyle.randomColor} /> Random Color
-			</label>
-			<div class="mt-2">
-				<label class="mb-1 block font-semibold" for="letterDisplayDirection"
-					>Letter Display Direction</label
-				>
-				<select
-					bind:value={settings.letterStyle.letterDisplayDirection}
-					class="w-full rounded border p-2"
-					id="letterDisplayDirection"
-				>
-					{#each letterDisplayOptions as dir}
-						<option value={dir}>{dir}</option>
+			<div class="rounded-lg border border-red-500/20 bg-red-500/5 p-4">
+				<span class="mb-3 block text-sm font-bold text-red-300">Chaos Parameters</span>
+				<div class="grid grid-cols-2 gap-2">
+					{#each [
+						{ label: 'Display mode', bind: 'shouldChangeDisplayMode' },
+						{ label: 'Letter style', bind: 'shouldChangeLetterStyle' },
+						{ label: 'Progress bar', bind: 'shouldChangeProgressBarVisibility' },
+						{ label: 'Timer', bind: 'shouldChangeTimerVisibility' },
+						{ label: 'Restart on error', bind: 'shouldChangeRestartOnError' },
+						{ label: 'Word position', bind: 'shouldChangeRandomWordPosition' },
+						{ label: 'Hide typed', bind: 'shouldChangeHideTypedLetter' },
+						{ label: 'Word length', bind: 'shouldChangeWordLength' },
+					] as item}
+						<label class="flex cursor-pointer items-center gap-2 rounded-md border border-base-border px-3 py-2 transition-colors hover:border-red-500/30 hover:bg-red-500/5">
+							<input
+								type="checkbox"
+								checked={settings.franticSettings[item.bind as keyof typeof settings.franticSettings]}
+								onchange={(e) => {
+									(settings.franticSettings as any)[item.bind] = (e.target as HTMLInputElement).checked;
+									settings = settings;
+								}}
+								class="accent-red-500"
+							/>
+							<span class="text-xs text-base-text">{item.label}</span>
+						</label>
 					{/each}
-				</select>
+				</div>
+			</div>
+		{:else}
+			<div class="flex flex-col items-center justify-center rounded-lg border border-dashed border-base-border py-12 text-center">
+				<span class="mb-2 text-4xl">&#127918;</span>
+				<p class="text-sm text-base-text-muted">Enable Chaos Mode to unlock random mutations</p>
+				<p class="text-xs text-base-text-muted">Every word changes the rules</p>
+			</div>
+		{/if}
+
+	<!-- STYLE TAB -->
+	{:else if activeTab === 'style'}
+		{#if settings.displayMode === 'letter-by-letter'}
+			<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+				<span class="mb-3 block text-sm font-bold text-accent">Letter Randomization</span>
+				<div class="grid grid-cols-2 gap-2">
+					{#each [
+						{ label: 'Random size', bind: 'randomSize' },
+						{ label: 'Random weight', bind: 'randomWeight' },
+						{ label: 'Random font', bind: 'randomFont' },
+						{ label: 'Random transform', bind: 'randomTransform' },
+						{ label: 'Random color', bind: 'randomColor' },
+					] as item}
+						<label class="flex cursor-pointer items-center gap-2 rounded-md border border-base-border px-3 py-2 transition-colors hover:border-accent/30 hover:bg-accent-muted">
+							<input
+								type="checkbox"
+								checked={settings.letterStyle[item.bind as keyof typeof settings.letterStyle] as boolean}
+								onchange={(e) => {
+									(settings.letterStyle as any)[item.bind] = (e.target as HTMLInputElement).checked;
+									settings = settings;
+								}}
+								class="accent-accent"
+							/>
+							<span class="text-xs text-base-text">{item.label}</span>
+						</label>
+					{/each}
+				</div>
+			</div>
+
+			<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+				<span class="mb-3 block text-sm font-bold text-accent">Letter Direction</span>
+				<div class="flex gap-2">
+					{#each letterDisplayOptions as dir}
+						<button
+							onclick={() => (settings.letterStyle.letterDisplayDirection = dir)}
+							class="flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all {settings.letterStyle.letterDisplayDirection === dir
+								? 'border-accent bg-accent-muted text-accent'
+								: 'border-base-border text-base-text-muted hover:border-accent/50'}"
+						>
+							{dir === 'left-to-right' ? 'Left to Right' : 'Center'}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{:else}
+			<div class="flex flex-col items-center justify-center rounded-lg border border-dashed border-base-border py-12 text-center">
+				<span class="mb-2 text-4xl">&#9998;</span>
+				<p class="text-sm text-base-text-muted">Switch to Letter-by-Letter mode</p>
+				<p class="text-xs text-base-text-muted">to unlock letter styling options</p>
+			</div>
+		{/if}
+
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+				<input type="checkbox" bind:checked={settings.displayLetterInUpperCase} class="accent-accent" />
+				<span class="text-sm text-base-text">Display letters in uppercase</span>
+			</label>
+		</div>
+
+	<!-- AUDIO TAB -->
+	{:else if activeTab === 'audio'}
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Voice</span>
+			<div class="space-y-2">
+				{#each [
+					{ label: 'Say current word', bind: () => settings.voice.sayCurrentWord, set: (v: boolean) => settings.voice.sayCurrentWord = v },
+					{ label: 'Focus on voice', bind: () => settings.voice.focusOnVoice, set: (v: boolean) => settings.voice.focusOnVoice = v },
+					{ label: 'Focus on letter', bind: () => settings.voice.focusOnLetter, set: (v: boolean) => settings.voice.focusOnLetter = v },
+				] as item}
+					<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+						<input type="checkbox" checked={item.bind()} onchange={(e) => item.set((e.target as HTMLInputElement).checked)} class="accent-accent" />
+						<span class="text-sm text-base-text">{item.label}</span>
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Sound Feedback</span>
+			<div class="space-y-2">
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.noFeedbackSound} class="accent-accent" />
+					<span class="text-sm text-base-text">Mute all feedback</span>
+				</label>
+				{#if settings.displayMode === 'letter-by-letter' && settings.letterStyle.letterDisplayDirection === 'center'}
+					<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+						<input type="checkbox" bind:checked={settings.noSuccessFeedbackSound} class="accent-accent" />
+						<span class="text-sm text-base-text">Mute success sound</span>
+					</label>
+				{/if}
+			</div>
+		</div>
+
+	<!-- UI TAB -->
+	{:else if activeTab === 'ui'}
+		<!-- Timer -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Timer</span>
+			<div class="space-y-2">
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.stealthTimer} class="accent-accent" />
+					<div>
+						<span class="text-sm text-base-text">Stealth timer</span>
+						<p class="text-[10px] text-base-text-muted">Hides numbers and colors — can't predict word length</p>
+					</div>
+				</label>
+			</div>
+		</div>
+
+		<!-- Session & Rest -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Session & Rest Cycle</span>
+			<div class="space-y-4">
+				<div>
+					<div class="mb-1 flex items-center justify-between text-xs">
+						<span class="text-base-text-muted">Training</span>
+						<span class="font-mono text-base-text">
+							{settings.sessionDuration > 0 ? `${settings.sessionDuration} min` : 'Unlimited'}
+						</span>
+					</div>
+					<input
+						type="range" min="0" max="120" step="5"
+						bind:value={settings.sessionDuration}
+						class="w-full accent-accent"
+					/>
+				</div>
+				<div>
+					<div class="mb-1 flex items-center justify-between text-xs">
+						<span class="text-base-text-muted">Rest</span>
+						<span class="font-mono text-base-text">
+							{settings.restDuration > 0 ? `${settings.restDuration} min` : 'Skip'}
+						</span>
+					</div>
+					<input
+						type="range" min="0" max="30" step="1"
+						bind:value={settings.restDuration}
+						class="w-full accent-accent"
+					/>
+				</div>
+				<p class="text-[10px] text-base-text-muted">
+					{#if settings.sessionDuration > 0 && settings.restDuration > 0}
+						Train for {settings.sessionDuration}min, rest for {settings.restDuration}min with a journal prompt, repeat.
+					{:else if settings.sessionDuration > 0}
+						Train for {settings.sessionDuration}min, then choose to continue or stop.
+					{:else}
+						Unlimited session. No automatic breaks.
+					{/if}
+				</p>
+			</div>
+		</div>
+
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Visibility</span>
+			<div class="grid grid-cols-2 gap-2">
+				{#each [
+					{ label: 'Hide progress bar', key: 'hideProgressBar' },
+					{ label: 'Hide timer', key: 'hideTimer' },
+					{ label: 'Hide typed letter', key: 'hideTypedLetter' },
+				] as item}
+					<label class="flex cursor-pointer items-center gap-2 rounded-md border border-base-border px-3 py-2 transition-colors hover:border-accent/30 hover:bg-accent-muted">
+						<input
+							type="checkbox"
+							checked={settings[item.key as keyof MindDojoSettings] as boolean}
+							onchange={(e) => {
+								(settings as any)[item.key] = (e.target as HTMLInputElement).checked;
+								settings = settings;
+							}}
+							class="accent-accent"
+						/>
+						<span class="text-xs text-base-text">{item.label}</span>
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Error Behavior</span>
+			<div class="space-y-2">
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.restartLevelOnError} class="accent-accent" />
+					<span class="text-sm text-base-text">Restart level on error</span>
+				</label>
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.showNewWordOnError} class="accent-accent" />
+					<span class="text-sm text-base-text">Show new word on error</span>
+				</label>
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.typeRestartLevelOnErrorOnLevelCompletion} class="accent-accent" />
+					<span class="text-sm text-base-text">Toggle restart-on-error each level</span>
+				</label>
+			</div>
+		</div>
+
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Data</span>
+			<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+				<input type="checkbox" bind:checked={settings.saveTypedWord} class="accent-accent" />
+				<span class="text-sm text-base-text">Save typed words to device</span>
+			</label>
+		</div>
+	<!-- THEME TAB -->
+	{:else if activeTab === 'theme'}
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Theme</span>
+			<div class="grid grid-cols-2 gap-3">
+				{#each themes as theme}
+					<button
+						onclick={() => { currentTheme = theme.key; applyTheme(theme.key); }}
+						class="flex items-center gap-3 rounded-lg border-2 px-4 py-3 transition-all {currentTheme === theme.key
+							? 'border-accent shadow-lg shadow-accent/20'
+							: 'border-base-border hover:border-base-border'}"
+						style="background: {theme.surface};"
+					>
+						<div class="flex gap-1">
+							<div class="h-4 w-4 rounded-full" style="background: {theme.bg}; border: 1px solid {theme.border};"></div>
+							<div class="h-4 w-4 rounded-full" style="background: {theme.accent};"></div>
+							<div class="h-4 w-4 rounded-full" style="background: {theme.text}; opacity: 0.5;"></div>
+						</div>
+						<span class="text-sm font-medium" style="color: {theme.text};">{theme.name}</span>
+					</button>
+				{/each}
 			</div>
 		</div>
 	{/if}
-
-	<!-- Game Memory Setting -->
-	<div class="space-y-2">
-		<p class="font-semibold">Game Memory Setting</p>
-		<label>
-			<input type="checkbox" bind:checked={settings.saveTypedWord} /> Save Shown Words On Device
-		</label>
-	</div>
-
-	<!-- Voice Settings -->
-	<div class="space-y-2">
-		<p class="font-semibold">Voice</p>
-		<label>
-			<input type="checkbox" bind:checked={settings.voice.sayCurrentWord} /> Say Current Word
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.voice.focusOnVoice} /> Focus on Voice
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.voice.focusOnLetter} /> Focus on Letter
-		</label>
-	</div>
-
-	<!-- Word Mix -->
-	<div class="space-y-2">
-		<p class="font-semibold">Word Mix</p>
-		<label>
-			<input type="checkbox" bind:checked={settings.wordMix.includeNumbers} /> Include Numbers
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.wordMix.includeUppercase} /> Include Uppercase
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.wordMix.includeLowercase} /> Include Lowercase
-		</label>
-		<div class="mt-2">
-			<label class="mb-1 block font-semibold" for="numberMode">Number Mode</label>
-			<select
-				bind:value={settings.wordMix.numberMode}
-				class="w-full rounded border p-2"
-				id="numberMode"
-			>
-				{#each numberModes as mode}
-					<option value={mode}>{mode}</option>
-				{/each}
-			</select>
-		</div>
-	</div>
-
-	<!-- Feedback Setting / Toggle -->
-	<div class="space-y-2">
-		<p class="font-semibold">Feedback Setting</p>
-		<label>
-			<input type="checkbox" bind:checked={settings.noFeedbackSound} /> No Feedback Sound
-		</label>
-		{#if settings.displayMode === 'letter-by-letter' && settings.letterStyle.letterDisplayDirection === 'center'}
-			<br />
-			<label>
-				<input type="checkbox" bind:checked={settings.noSuccessFeedbackSound} /> No success feedback
-			</label>
-		{/if}
-	</div>
-
-	<!-- Level Setting / Toggle -->
-	<div class="space-y-2">
-		<p class="font-semibold">Level Setting</p>
-		<label>
-			<input type="checkbox" bind:checked={settings.typeRestartLevelOnErrorOnLevelCompletion} /> Type
-			Restart Leve On Error After Level Completion
-		</label>
-	</div>
-
-	<!-- UI / Logic Toggles -->
-	<div class="space-y-2">
-		<p class="font-semibold">UI & Behavior</p>
-		<label>
-			<input type="checkbox" bind:checked={settings.hideProgressBar} /> Hide Progress Bar
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.hideTimer} /> Hide Timer
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.restartLevelOnError} /> Restart Level on Error
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.showNewWordOnError} /> Show New Word on Error
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.hideTypedLetter} /> Hide Typed Letter
-		</label>
-		<br />
-		<label>
-			<input type="checkbox" bind:checked={settings.displayLetterInUpperCase} /> Display Letter In Upper
-			Case
-		</label>
-	</div>
-
-	<!-- Focus Area -->
-	<!-- <div class="space-y-2">
-		<p class="font-semibold">Focus Area</p>
-		<label>
-			Exclude Keys
-			<input type="text" bind:value={settings.focusKeys.excludeKeys} />
-		</label>
-	</div> -->
-</section>
+</div>

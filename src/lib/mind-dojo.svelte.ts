@@ -1,7 +1,7 @@
 import { browser } from "$app/environment"
 import { getRandomChar, initializeAudio } from "$lib"
 import { SavedWordDB } from "./database.svelte"
-import type { MindDojoSettings, SavedWord, Word, Words } from "./structure"
+import type { MindDojoSettings, SavedWord, TypingFlow, Word, Words } from "./structure"
 import { generateRandomShiftOfWordPosition, getBaseStyle } from "./style"
 
 const defaultSetting: MindDojoSettings = {
@@ -54,6 +54,9 @@ const defaultSetting: MindDojoSettings = {
     saveTypedWord: true,
     typeRestartLevelOnErrorOnLevelCompletion: true,
     displayLetterInUpperCase: false,
+    stealthTimer: true,
+    sessionDuration: 0,
+    restDuration: 0,
 };
 
 
@@ -68,9 +71,61 @@ function getSettings() {
 
 }
 
+// Belt ranks — the dojo progression
+interface Belt {
+    name: string
+    minXp: number
+    color: string
+}
+
+const BELTS: Belt[] = [
+    { name: "White Belt", minXp: 0, color: "#e5e5e5" },
+    { name: "Yellow Belt", minXp: 100, color: "#facc15" },
+    { name: "Orange Belt", minXp: 300, color: "#f97316" },
+    { name: "Green Belt", minXp: 600, color: "#22c55e" },
+    { name: "Blue Belt", minXp: 1000, color: "#3b82f6" },
+    { name: "Purple Belt", minXp: 1800, color: "#a855f7" },
+    { name: "Brown Belt", minXp: 3000, color: "#92400e" },
+    { name: "Red Belt", minXp: 5000, color: "#ef4444" },
+    { name: "Black Belt", minXp: 8000, color: "#171717" },
+    { name: "Master", minXp: 15000, color: "#fbbf24" },
+]
+
+function getBelt(xp: number) {
+    let belt = BELTS[0]
+    for (const b of BELTS) {
+        if (xp >= b.minXp) belt = b
+    }
+    return belt
+}
+
+function getNextBelt(xp: number) {
+    for (const b of BELTS) {
+        if (xp < b.minXp) return b
+    }
+    return null
+}
+
+function loadDojo(): { xp: number; bestCombo: number; totalCorrect: number; totalErrors: number; levelProgress: number } {
+    if (!browser) return { xp: 0, bestCombo: 0, totalCorrect: 0, totalErrors: 0, levelProgress: 0 }
+    try {
+        const saved = JSON.parse(localStorage.getItem("dojoProgress") || "{}")
+        return {
+            xp: saved.xp || 0,
+            bestCombo: saved.bestCombo || 0,
+            totalCorrect: saved.totalCorrect || 0,
+            totalErrors: saved.totalErrors || 0,
+            levelProgress: saved.levelProgress || 0,
+        }
+    } catch {
+        return { xp: 0, bestCombo: 0, totalCorrect: 0, totalErrors: 0, levelProgress: 0 }
+    }
+}
+
 export class MindDojo {
     private words: Words = []
     private currentIndex = 0
+    private preChaosSettings: MindDojoSettings | null = null
 
     database: SavedWordDB
 
@@ -84,11 +139,137 @@ export class MindDojo {
     settings: MindDojoSettings = $state(getSettings())
 
     dojoState = $state({
-        progress: 0,
+        progress: loadDojo().levelProgress,
         lastOutcome: "" as "success" | "error" | "timeout" | "",
     })
 
+    // Gamification state
+    private _dojoProgress = loadDojo()
+    xp = $state(this._dojoProgress.xp)
+    bestCombo = $state(this._dojoProgress.bestCombo)
+    totalCorrect = $state(this._dojoProgress.totalCorrect)
+    totalErrors = $state(this._dojoProgress.totalErrors)
+    combo = $state(0)
+    sessionCorrect = $state(0)
+    sessionErrors = $state(0)
+    sessionStartTime = Date.now()
+    sessionTimeline: { word: string; correct: boolean; duration: number; ts: number }[] = $state(
+        browser ? (() => { try { return JSON.parse(localStorage.getItem("sessionTimeline") || "[]") } catch { return [] } })() : []
+    )
+    sessionPhase: 'active' | 'rest' | 'idle' = $state('idle')
+    restSecondsLeft = $state(0)
+    private sessionTimer: ReturnType<typeof setTimeout> | null = null
+    private restInterval: ReturnType<typeof setInterval> | null = null
+    sessionJournals: { text: string; timestamp: number }[] = $state([])
+
+    // Level persistence — track the speed at which progress was earned
+    private savedLevelSpeed: number = 0
+
+    // Compat getter
+    get sessionExpired() { return this.sessionPhase === 'rest' }
+    private eventCounter = 0
+    lastEvent: { type: "success" | "error" | "rank-up"; text?: string; id: number } | null = $state(null)
+
+    get belt() { return getBelt(this.xp) }
+    get nextBelt() { return getNextBelt(this.xp) }
+    get accuracy() {
+        const total = this.sessionCorrect + this.sessionErrors
+        return total > 0 ? Math.round((this.sessionCorrect / total) * 100) : 100
+    }
+
+    private persistProgress() {
+        if (!browser) return
+        localStorage.setItem("dojoProgress", JSON.stringify({
+            xp: this.xp,
+            bestCombo: this.bestCombo,
+            totalCorrect: this.totalCorrect,
+            totalErrors: this.totalErrors,
+            levelProgress: this.dojoState.progress,
+        }))
+    }
+
+    private persistTimeline() {
+        if (!browser) return
+        localStorage.setItem("sessionTimeline", JSON.stringify(this.sessionTimeline))
+    }
+
+    startSessionTimer() {
+        this.clearTimers()
+        const duration = this.settings.sessionDuration
+        if (!duration || duration <= 0) {
+            this.sessionPhase = 'active'
+            return
+        }
+        this.sessionPhase = 'active'
+        this.sessionTimer = setTimeout(() => {
+            this.enterRest()
+        }, duration * 60 * 1000)
+    }
+
+    private enterRest() {
+        this.sessionPhase = 'rest'
+        // Stop the word timer
+        if (this.timer) {
+            cancelAnimationFrame(this.timer)
+            this.timer = null
+        }
+        const restMins = this.settings.restDuration
+        if (restMins > 0) {
+            this.restSecondsLeft = restMins * 60
+            this.restInterval = setInterval(() => {
+                this.restSecondsLeft--
+                if (this.restSecondsLeft <= 0) {
+                    this.endRest()
+                }
+            }, 1000)
+        }
+    }
+
+    endRest() {
+        this.clearTimers()
+        this.sessionPhase = 'active'
+        this.sessionCorrect = 0
+        this.sessionErrors = 0
+        this.sessionTimeline = []
+        this.persistTimeline()
+        this.sessionStartTime = Date.now()
+        this.combo = 0
+        this.startSessionTimer()
+        this.pickNextWord()
+    }
+
+    stopSessionTimer() {
+        this.clearTimers()
+        this.sessionPhase = 'active'
+    }
+
+    private clearTimers() {
+        if (this.sessionTimer) { clearTimeout(this.sessionTimer); this.sessionTimer = null }
+        if (this.restInterval) { clearInterval(this.restInterval); this.restInterval = null }
+    }
+
+    saveSessionJournal(text: string) {
+        if (!text.trim()) return
+        this.sessionJournals.push({
+            text: text.trim(),
+            timestamp: Date.now(),
+        })
+        if (browser) {
+            localStorage.setItem("sessionJournals", JSON.stringify(this.sessionJournals))
+        }
+    }
+
+    // Level persistence — reset progress if speed was manually changed
+    checkLevelReset() {
+        const currentSpeed = parseFloat(this.settings.speed.toFixed(4))
+        if (this.savedLevelSpeed !== 0 && currentSpeed !== this.savedLevelSpeed) {
+            this.dojoState.progress = 0
+        }
+        this.savedLevelSpeed = currentSpeed
+    }
+
     currentWord: Word | null = $state(null)
+    currentWordIsRandom = false
     typedWord: string = $state("")
     wordTimerDuration = $state(0)
     wordMaxDuration = $state(0)
@@ -100,6 +281,9 @@ export class MindDojo {
         [k: string]: HTMLAudioElement;
     } = {}
 
+    private keystrokeTimestamps: number[] = []
+    private wordShownAt: number = 0
+
 
 
     constructor(words: Words) {
@@ -110,6 +294,9 @@ export class MindDojo {
         this.pickNextWord()
         if (browser) {
             this.lettersAudio = initializeAudio()
+            try {
+                this.sessionJournals = JSON.parse(localStorage.getItem("sessionJournals") || "[]")
+            } catch { /* ignore */ }
         }
     }
 
@@ -185,7 +372,26 @@ export class MindDojo {
         this.wordTimerDuration = totalWait
     }
 
-    private updateWordStatsInDb(wordStr: string, updateFn: (savedWord: SavedWord) => SavedWord): void {
+    private buildTypingFlow(correct: boolean): TypingFlow {
+        const intervals: number[] = []
+        if (this.keystrokeTimestamps.length > 0) {
+            intervals.push(this.keystrokeTimestamps[0] - this.wordShownAt)
+        }
+        for (let i = 1; i < this.keystrokeTimestamps.length; i++) {
+            intervals.push(this.keystrokeTimestamps[i] - this.keystrokeTimestamps[i - 1])
+        }
+        const lastKeystroke = this.keystrokeTimestamps.length > 0
+            ? this.keystrokeTimestamps[this.keystrokeTimestamps.length - 1]
+            : this.wordShownAt
+        return {
+            letterIntervals: intervals,
+            totalDuration: lastKeystroke - this.wordShownAt,
+            timestamp: Date.now(),
+            correct,
+        }
+    }
+
+    private updateWordStatsInDb(wordStr: string, updateFn: (savedWord: SavedWord) => SavedWord, flow?: TypingFlow): void {
         if (!browser) return
         setTimeout(async () => {
             let savedWord = await this.database.getWord(wordStr)
@@ -206,12 +412,22 @@ export class MindDojo {
                         description: "",
                         tag: [],
                     },
+                    typingFlows: [],
                     createdAt: now,
                 }
             }
 
             savedWord = updateFn(savedWord)
+            savedWord.stats.seen = (savedWord.stats.seen || 0) + 1
             savedWord.stats.lastSeen = now // Always update lastSeen on any interaction
+
+            if (flow && flow.letterIntervals.length > 0) {
+                if (!savedWord.typingFlows) savedWord.typingFlows = []
+                savedWord.typingFlows.push(flow)
+                if (savedWord.typingFlows.length > 50) {
+                    savedWord.typingFlows = savedWord.typingFlows.slice(-50)
+                }
+            }
 
             await this.database.saveWord(savedWord)
         })
@@ -230,25 +446,34 @@ export class MindDojo {
         }
 
         this.settings.speed = parseFloat(nextSpeed.toFixed(4));
+        this.savedLevelSpeed = this.settings.speed
         this.dojoState.progress = 0;
-    }
-
-    shouldSave() {
-        if (!this.settings.saveTypedWord) return false
-        if (this.settings.joinRandomLetters) return false;
-        if ((this.settings.displayMode === 'letter-by-letter') &&
-            (this.settings.letterStyle.letterDisplayDirection === 'center')) return false
-        return true
     }
 
     handleError() {
         this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
-        if (this.currentWord && this.shouldSave()) {
+        if (this.currentWord) {
+            const flow = this.buildTypingFlow(false)
+
             this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                 sw.stats.wronglyTyped = (sw.stats.wronglyTyped || 0) + 1
                 return sw
-            })
+            }, flow)
         }
+
+        // Gamification — error breaks combo
+        this.combo = 0
+        this.sessionErrors++
+        this.totalErrors++
+        this.sessionTimeline.push({
+            word: this.currentWord?.word || '',
+            correct: false,
+            duration: performance.now() - this.wordShownAt,
+            ts: Date.now(),
+        })
+        this.persistTimeline()
+        this.lastEvent = { type: "error", id: ++this.eventCounter }
+        this.persistProgress()
 
         if (!this.settings.noFeedbackSound) {
             this.playSound(this.gameSound.wrong, 0.2)
@@ -291,11 +516,38 @@ export class MindDojo {
         }
 
         if (this.currentWord?.word === this.typedWord) {
-            if (this.currentWord && this.shouldSave()) {
+            if (this.currentWord) {
+                const flow = this.buildTypingFlow(true)
+
                 this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                     sw.stats.correctlyTyped = (sw.stats.correctlyTyped || 0) + 1;
                     return sw;
-                });
+                }, flow)
+            }
+
+            // Gamification — combo + XP
+            this.combo++
+            this.sessionCorrect++
+            this.totalCorrect++
+            this.sessionTimeline.push({
+                word: this.currentWord?.word || '',
+                correct: true,
+                duration: performance.now() - this.wordShownAt,
+                ts: Date.now(),
+            })
+            this.persistTimeline()
+            if (this.combo > this.bestCombo) this.bestCombo = this.combo
+
+            const wordLen = this.currentWord?.word.length || 1
+            const comboMultiplier = 1 + Math.floor(this.combo / 5) * 0.5 // +0.5x every 5 combo
+            const xpGain = Math.round(wordLen * comboMultiplier)
+            const prevBelt = this.belt
+            this.xp += xpGain
+
+            if (this.belt.name !== prevBelt.name) {
+                this.lastEvent = { type: "rank-up", text: this.belt.name, id: ++this.eventCounter }
+            } else {
+                this.lastEvent = { type: "success", text: `+${xpGain}`, id: ++this.eventCounter }
             }
 
             if (!this.settings.noFeedbackSound) {
@@ -310,6 +562,7 @@ export class MindDojo {
             if (this.dojoState.progress >= 100) {
                 this.advanceLevel();
             }
+            this.persistProgress()
 
             this.pickNextWord();
             return;
@@ -341,6 +594,7 @@ export class MindDojo {
         event.preventDefault()
         if (this.currentWord?.word.length === this.typedWord.length) return
 
+        this.keystrokeTimestamps.push(performance.now())
         this.typedWord += key
         this.validateTypedWord()
     }
@@ -351,8 +605,29 @@ export class MindDojo {
         this.holdDelete = false
     }
 
+    enableChaosMode(): void {
+        if (this.preChaosSettings === null) {
+            this.preChaosSettings = JSON.parse(JSON.stringify(this.settings));
+        }
+        this.settings.franticMode = true;
+    }
+
+    disableChaosMode(): void {
+        if (this.preChaosSettings !== null) {
+            const snapshot = this.preChaosSettings;
+            snapshot.franticMode = false;
+            snapshot.franticSettings = { ...this.settings.franticSettings };
+            this.settings = snapshot;
+            this.preChaosSettings = null;
+        }
+    }
+
     generateRandomSetting(): void {
         if (!this.settings.franticMode) return;
+
+        if (this.preChaosSettings === null) {
+            this.preChaosSettings = JSON.parse(JSON.stringify(this.settings));
+        }
 
         const flags = this.settings.franticSettings;
         let newSettings: MindDojoSettings = { ...this.settings };
@@ -477,17 +752,13 @@ export class MindDojo {
     }
 
     pickNextWord(): void {
+        if (this.sessionExpired) return
+        this.checkLevelReset()
         this.generateRandomSetting();
 
         let isRandom = this.settings.joinRandomLetters && (!this.settings.mixJoinRandomLetters || Math.random() < 0.8)
+        this.currentWordIsRandom = isRandom
         const pickedWord = (isRandom ? this.generateRandomLettersWord : this.generateWord).bind(this)()
-
-        if (!this.settings.joinRandomLetters && this.settings.saveTypedWord && this.shouldSave()) {
-            this.updateWordStatsInDb(pickedWord.word, (sw) => {
-                sw.stats.seen = (sw.stats.seen || 0) + 1;
-                return sw;
-            });
-        }
 
         this.currentWord = pickedWord;
 
@@ -497,6 +768,8 @@ export class MindDojo {
         this.wordTransformStyle = generateRandomShiftOfWordPosition(pickedWord.word, this.settings)
 
         this.typedWord = "";
+        this.keystrokeTimestamps = [];
+        this.wordShownAt = performance.now();
 
         // ✅ reset durations
         this.setTimer();

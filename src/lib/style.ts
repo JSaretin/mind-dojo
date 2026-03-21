@@ -2,16 +2,15 @@ import type { MindDojoSettings } from "./structure";
 
 export function getRandomColor(): string {
     const colors = [
-        'text-black', // strong bias
-        'text-red-500',
-        'text-blue-500',
-        'text-green-500',
-        'text-yellow-500',
-        'text-purple-500',
-        'text-pink-500',
-        'text-orange-500',
-        'text-emerald-500',
-        'text-cyan-500',
+        'text-red-400',
+        'text-blue-400',
+        'text-green-400',
+        'text-yellow-300',
+        'text-purple-400',
+        'text-pink-400',
+        'text-orange-400',
+        'text-emerald-400',
+        'text-cyan-400',
     ];
     return colors[Math.floor(Math.random() * colors.length)];
 }
