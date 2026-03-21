@@ -499,19 +499,24 @@
 					{#if hoveredPoint}
 						{@const label = hoveredPoint.isReaction ? 'reaction' : hoveredPoint.isHesitation ? 'hesitation' : hoveredPoint.isRush ? 'autopilot' : ''}
 						{@const tooltipW = label ? 60 : 36}
+						{@const tooltipH = label ? 20 : 14}
+						{@const nearTop = hoveredPoint.y - tooltipH - 8 < padding.top}
+						{@const tipY = nearTop ? hoveredPoint.y + 8 : hoveredPoint.y - tooltipH - 6}
+						{@const tipX = Math.max(padding.left, Math.min(hoveredPoint.x - tooltipW / 2, width - tooltipW - 2))}
+						{@const tipCenterX = tipX + tooltipW / 2}
 						<rect
-							x={Math.min(hoveredPoint.x - tooltipW / 2, width - tooltipW - 2)}
-							y={hoveredPoint.y - 22}
+							x={tipX}
+							y={tipY}
 							width={tooltipW}
-							height={label ? 20 : 14}
+							height={tooltipH}
 							rx="3"
 							fill="var(--theme-surface, #1f2937)"
 							stroke={hoveredPoint.isReaction ? '#a855f7' : hoveredPoint.isHesitation ? '#f59e0b' : hoveredPoint.isRush ? '#06b6d4' : 'var(--theme-accent, #f59e0b)'}
 							stroke-width="0.5"
 						/>
 						<text
-							x={Math.min(hoveredPoint.x, width - tooltipW / 2 - 2)}
-							y={hoveredPoint.y - (label ? 13 : 11)}
+							x={tipCenterX}
+							y={tipY + (label ? 9 : 10)}
 							text-anchor="middle"
 							fill="var(--theme-accent, #fbbf24)"
 							font-size="7"
@@ -521,8 +526,8 @@
 						</text>
 						{#if label}
 							<text
-								x={Math.min(hoveredPoint.x, width - tooltipW / 2 - 2)}
-								y={hoveredPoint.y - 5}
+								x={tipCenterX}
+								y={tipY + 17}
 								text-anchor="middle"
 								fill={hoveredPoint.isReaction ? '#a855f7' : hoveredPoint.isHesitation ? '#f59e0b' : '#06b6d4'}
 								font-size="6"

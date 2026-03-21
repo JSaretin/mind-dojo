@@ -116,6 +116,8 @@
 		dojoProgress: true,
 		onlyStarred: false,
 		onlyFiltered: false,
+		dateFilter: 'all' as 'all' | 'today' | 'custom',
+		customDate: new Date().toISOString().slice(0, 10),
 	});
 
 	async function exportData() {
@@ -140,12 +142,37 @@
 					wordsToExport = wordsToExport.filter(w => w.stats.starred);
 				}
 
+				// Date filter: filter typing flows to only include matching day
+				let dateStart = 0;
+				let dateEnd = Infinity;
+				if (exportOptions.dateFilter !== 'all') {
+					const targetDate = exportOptions.dateFilter === 'today'
+						? new Date().toISOString().slice(0, 10)
+						: exportOptions.customDate;
+					dateStart = new Date(targetDate + 'T00:00:00').getTime();
+					dateEnd = dateStart + 86400000; // +24h
+				}
+
 				data.words = wordsToExport.map(w => {
 					const word: Record<string, unknown> = { word: w.word, createdAt: w.createdAt };
 					if (exportOptions.stats) word.stats = w.stats;
-					if (exportOptions.typingFlows) word.typingFlows = w.typingFlows;
+					if (exportOptions.typingFlows) {
+						if (exportOptions.dateFilter !== 'all') {
+							word.typingFlows = (w.typingFlows || []).filter(
+								f => f.timestamp >= dateStart && f.timestamp < dateEnd
+							);
+						} else {
+							word.typingFlows = w.typingFlows;
+						}
+					}
 					if (exportOptions.journals) word.jounal = w.jounal;
 					return word;
+				}).filter(w => {
+					// If date-filtering, exclude words with no flows on that day
+					if (exportOptions.dateFilter !== 'all' && exportOptions.typingFlows) {
+						return (w.typingFlows as unknown[])?.length > 0;
+					}
+					return true;
 				});
 			}
 
@@ -509,6 +536,38 @@
 						<input type="checkbox" bind:checked={exportOptions.onlyFiltered} class="accent-accent" />
 						<span class="text-xs text-base-text">Current filter/search only <span class="text-base-text-muted">({filteredWords.length} words)</span></span>
 					</label>
+				</div>
+
+				<div class="mt-4 space-y-2">
+					<span class="text-[10px] font-bold uppercase tracking-wider text-base-text-muted">Date Range</span>
+					<div class="flex gap-1">
+						{#each [
+							{ key: 'all', label: 'All time' },
+							{ key: 'today', label: 'Today' },
+							{ key: 'custom', label: 'Pick day' },
+						] as opt}
+							<button
+								onclick={() => exportOptions.dateFilter = opt.key as typeof exportOptions.dateFilter}
+								class="flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium transition-all {exportOptions.dateFilter === opt.key
+									? 'border-accent bg-accent-muted text-accent'
+									: 'border-base-border text-base-text-muted hover:border-accent/50'}"
+							>
+								{opt.label}
+							</button>
+						{/each}
+					</div>
+					{#if exportOptions.dateFilter === 'custom'}
+						<input
+							type="date"
+							bind:value={exportOptions.customDate}
+							class="w-full rounded-md border border-base-border bg-surface-hover px-3 py-1.5 text-xs text-base-text focus:border-accent focus:outline-none"
+						/>
+					{/if}
+					{#if exportOptions.dateFilter !== 'all'}
+						<p class="text-[10px] text-base-text-muted">
+							Only typing flows from {exportOptions.dateFilter === 'today' ? 'today' : exportOptions.customDate} will be exported. Words with no activity on that day are excluded.
+						</p>
+					{/if}
 				</div>
 
 				<div class="mt-5 flex items-center justify-between">
