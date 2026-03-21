@@ -199,4 +199,76 @@ export class SavedWordDB {
             request.onerror = () => reject(request.error);
         });
     }
+
+    async exportData(): Promise<{
+        exportedAt: string;
+        version: number;
+        dojoProgress: Record<string, unknown>;
+        settings: Record<string, unknown>;
+        words: SavedWord[];
+    }> {
+        const words = await this.getAllWords('createdAt');
+        return {
+            exportedAt: new Date().toISOString(),
+            version: DB_VERSION,
+            dojoProgress: JSON.parse(localStorage.getItem('dojoProgress') || '{}'),
+            settings: JSON.parse(localStorage.getItem('settings') || '{}'),
+            words,
+        };
+    }
+
+    async importData(data: {
+        version?: number;
+        dojoProgress?: Record<string, unknown>;
+        settings?: Record<string, unknown>;
+        words?: SavedWord[];
+    }): Promise<{ imported: number; skipped: number }> {
+        let imported = 0;
+        let skipped = 0;
+
+        if (data.dojoProgress) {
+            localStorage.setItem('dojoProgress', JSON.stringify(data.dojoProgress));
+        }
+        if (data.settings) {
+            localStorage.setItem('settings', JSON.stringify(data.settings));
+        }
+
+        if (data.words) {
+            for (const word of data.words) {
+                try {
+                    const existing = await this.getWord(word.word.word);
+                    if (existing) {
+                        // Merge: keep higher stats, combine typing flows
+                        existing.stats.correctlyTyped = Math.max(existing.stats.correctlyTyped, word.stats.correctlyTyped);
+                        existing.stats.wronglyTyped = Math.max(existing.stats.wronglyTyped, word.stats.wronglyTyped);
+                        existing.stats.seen = Math.max(existing.stats.seen || 0, word.stats.seen || 0);
+                        existing.stats.lastSeen = Math.max(existing.stats.lastSeen || 0, word.stats.lastSeen || 0);
+                        if (word.stats.starred) existing.stats.starred = true;
+                        if (word.jounal?.description && !existing.jounal?.description) {
+                            existing.jounal = word.jounal;
+                        }
+                        // Merge typing flows by timestamp (avoid duplicates)
+                        const existingTimestamps = new Set(existing.typingFlows?.map(f => f.timestamp) || []);
+                        for (const flow of (word.typingFlows || [])) {
+                            if (!existingTimestamps.has(flow.timestamp)) {
+                                if (!existing.typingFlows) existing.typingFlows = [];
+                                existing.typingFlows.push(flow);
+                            }
+                        }
+                        if (existing.typingFlows && existing.typingFlows.length > 50) {
+                            existing.typingFlows = existing.typingFlows.slice(-50);
+                        }
+                        await this.saveWord(existing);
+                    } else {
+                        await this.saveWord(word);
+                    }
+                    imported++;
+                } catch {
+                    skipped++;
+                }
+            }
+        }
+
+        return { imported, skipped };
+    }
 }

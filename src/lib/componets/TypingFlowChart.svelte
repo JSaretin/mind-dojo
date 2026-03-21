@@ -13,6 +13,18 @@
 
 	let selectedFlowIndex: number | null = $state(null);
 	let view: 'latest' | 'history' | 'insights' = $state(defaultView === 'history' ? 'history' : defaultView === 'insights' ? 'insights' : 'latest');
+	let chartUnit: 'ms' | 'pct' = $state('ms');
+
+	function getMsPerLetter(flow: TypingFlow): number {
+		if (flow.msPerLetter) return flow.msPerLetter;
+		if (flow.speed) return 1000 / Math.max(flow.speed, 1);
+		return 500; // fallback for old data
+	}
+
+	/** Normalize an interval to % of time budget. 100% = used all allowed time for one letter */
+	function toPct(ms: number, msPerLetter: number): number {
+		return msPerLetter > 0 ? (ms / msPerLetter) * 100 : 0;
+	}
 
 	let activeFlow = $derived(
 		selectedFlowIndex !== null ? flows[selectedFlowIndex] : flows[flows.length - 1]
@@ -31,16 +43,38 @@
 		return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 	}
 
+	function formatVal(val: number): string {
+		if (chartUnit === 'pct') return `${Math.round(val)}%`;
+		return formatMs(val);
+	}
+
 	function formatDate(ts: number): string {
 		return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 	}
 
-	// Map intervals to the FULL word, placing each interval at its correct letter index.
-	// intervals[0] = time to type word[0], intervals[1] = time between word[0] and word[1], etc.
-	// For partial (errored) attempts, untyped letters get null.
-	function mapIntervalsToWord(intervals: number[]): (number | null)[] {
-		const mapped: (number | null)[] = [];
-		for (let i = 0; i < word.length; i++) {
+	// Get typing intervals excluding reaction time (first entry).
+	// Old flows: intervals[0] = reaction time (large). New flows: intervals[0] = 0, reactionTime is separate.
+	// We skip index 0 and chart only inter-key intervals (indices 1+), mapped to letters 1+.
+	// Letter 0 gets null (first key has no inter-key interval).
+	function getTypingIntervals(flow: TypingFlow): number[] {
+		// New format: reactionTime field exists and intervals[0] is 0
+		if (flow.reactionTime !== undefined && flow.letterIntervals.length > 0 && flow.letterIntervals[0] === 0) {
+			return flow.letterIntervals.slice(1);
+		}
+		// Old format: intervals[0] is the reaction time — skip it
+		return flow.letterIntervals.slice(1);
+	}
+
+	function getReactionTime(flow: TypingFlow): number {
+		if (flow.reactionTime !== undefined) return flow.reactionTime;
+		// Old format: first interval was reaction time
+		return flow.letterIntervals.length > 0 ? flow.letterIntervals[0] : 0;
+	}
+
+	function mapIntervalsToWord(intervals: number[], reactionTime: number): (number | null)[] {
+		// First letter uses reaction time, rest use inter-key intervals
+		const mapped: (number | null)[] = [reactionTime > 0 ? reactionTime : null];
+		for (let i = 0; i < word.length - 1; i++) {
 			mapped.push(i < intervals.length ? intervals[i] : null);
 		}
 		return mapped;
@@ -48,27 +82,41 @@
 
 	// ── Single flow chart (Latest view) ──
 
-	function buildFlowPoints(flow: TypingFlow): { x: number; y: number; val: number | null; letter: string; idx: number; isHesitation: boolean; isRush: boolean }[] {
-		const mapped = mapIntervalsToWord(flow.letterIntervals);
-		const typed = flow.letterIntervals;
+	function buildFlowPoints(flow: TypingFlow): { x: number; y: number; val: number | null; letter: string; idx: number; isHesitation: boolean; isRush: boolean; isReaction: boolean }[] {
+		const interKeyIntervals = getTypingIntervals(flow);
+		const reaction = getReactionTime(flow);
+		const budgetMs = getMsPerLetter(flow);
+		const mapped = mapIntervalsToWord(interKeyIntervals, reaction);
+
+		// Convert to display values based on unit
+		const toDisplay = (ms: number) => chartUnit === 'pct' ? toPct(ms, budgetMs) : ms;
+
+		// For scale + hesitation detection, use inter-key intervals only (not reaction time)
+		const typed = interKeyIntervals.filter(v => v > 0);
 		const avg = typed.length > 0 ? typed.reduce((a, b) => a + b, 0) / typed.length : 0;
 		const stdDev = typed.length > 1
 			? Math.sqrt(typed.reduce((s, v) => s + (v - avg) ** 2, 0) / typed.length)
 			: 0;
 
-		const maxVal = Math.max(...typed, 1);
+		// Display values for scaling
+		const displayVals = mapped.map(v => v !== null && v > 0 ? toDisplay(v) : null);
+		const allDisplayVals = displayVals.filter((v): v is number => v !== null && v > 0);
+		const maxVal = Math.max(...allDisplayVals, 1);
 		const stepX = word.length > 1 ? chartW / (word.length - 1) : 0;
 
 		return mapped.map((val, i) => {
+			const displayVal = displayVals[i];
 			const x = padding.left + i * stepX;
-			const y = val !== null
-				? padding.top + chartH - (val / maxVal) * chartH
-				: padding.top + chartH; // untyped sits at bottom
+			const y = displayVal !== null && displayVal > 0
+				? padding.top + chartH - (displayVal / maxVal) * chartH
+				: padding.top + chartH;
+			const isFirst = i === 0;
 			return {
-				x, y, val, letter: word[i],
+				x, y, val: displayVal, letter: word[i],
 				idx: i,
-				isHesitation: val !== null && val > avg + stdDev * 0.8,
-				isRush: val !== null && val < avg - stdDev * 0.5 && val < avg * 0.6,
+				isHesitation: !isFirst && val !== null && val > 0 && val > avg + stdDev * 0.8,
+				isRush: !isFirst && val !== null && val > 0 && val < avg - stdDev * 0.5 && val < avg * 0.6,
+				isReaction: isFirst && val !== null && val > 0,
 			};
 		});
 	}
@@ -81,31 +129,69 @@
 
 	let activePoints = $derived(activeFlow ? buildFlowPoints(activeFlow) : []);
 	let activePath = $derived(buildFlowPath(activePoints));
-	let activeMax = $derived(activeFlow ? Math.max(...activeFlow.letterIntervals, 1) : 1);
-	let activeAvg = $derived(activeFlow && activeFlow.letterIntervals.length > 0
-		? activeFlow.letterIntervals.reduce((a, b) => a + b, 0) / activeFlow.letterIntervals.length
+	let activeInterKey = $derived(activeFlow ? getTypingIntervals(activeFlow).filter(v => v > 0) : []);
+	let activeMax = $derived(activeInterKey.length > 0 ? Math.max(...activeInterKey, 1) : 1);
+	let activeAvg = $derived(activeInterKey.length > 0
+		? activeInterKey.reduce((a, b) => a + b, 0) / activeInterKey.length
 		: 0);
+	let activeReaction = $derived(activeFlow ? getReactionTime(activeFlow) : 0);
+
+	// Overall average speed across ALL flows for this word (typing only, excludes reaction)
+	let overallAvgSpeed = $derived.by(() => {
+		if (flows.length === 0) return 0;
+		const durations = flows.map(f => {
+			const interKey = getTypingIntervals(f);
+			return interKey.length > 0 ? interKey.reduce((a, b) => a + b, 0) : 0;
+		});
+		return durations.reduce((a, b) => a + b, 0) / durations.length;
+	});
+
+	let fastestFlow = $derived.by(() => {
+		if (flows.length === 0) return null;
+		let fastest = flows[0];
+		for (const f of flows) {
+			const dur = f.totalDuration || f.letterIntervals.reduce((a, b) => a + b, 0);
+			const bestDur = fastest.totalDuration || fastest.letterIntervals.reduce((a, b) => a + b, 0);
+			if (dur < bestDur && f.correct) fastest = f;
+		}
+		return fastest;
+	});
+
+	let fastestDuration = $derived(fastestFlow
+		? fastestFlow.totalDuration || fastestFlow.letterIntervals.reduce((a, b) => a + b, 0)
+		: 0);
+
+	// Average reaction time across all flows
+	let avgReactionTime = $derived.by(() => {
+		if (flows.length === 0) return 0;
+		const reactions = flows.map(f => getReactionTime(f));
+		return reactions.reduce((a, b) => a + b, 0) / reactions.length;
+	});
 
 	// ── History overlay ──
 
-	// Use word.length as the x-axis, not interval count
+	// Use inter-key intervals only, normalized if in pct mode
 	let overlayMax = $derived.by(() => {
 		let max = 1;
 		for (const f of flows) {
-			for (const v of f.letterIntervals) {
-				if (v > max) max = v;
+			const budget = getMsPerLetter(f);
+			for (const v of getTypingIntervals(f)) {
+				const dv = chartUnit === 'pct' ? toPct(v, budget) : v;
+				if (dv > max) max = dv;
 			}
 		}
 		return max;
 	});
 
-	function buildOverlayPath(intervals: number[], sharedMax: number): string {
-		if (intervals.length < 2) return '';
+	function buildOverlayPath(intervals: number[], sharedMax: number, flow?: TypingFlow): string {
+		if (intervals.length < 1) return '';
+		const budget = flow ? getMsPerLetter(flow) : 500;
 		const stepX = word.length > 1 ? chartW / (word.length - 1) : 0;
 		return intervals
 			.map((val, i) => {
-				const x = padding.left + i * stepX;
-				const y = padding.top + chartH - (val / sharedMax) * chartH;
+				const dv = chartUnit === 'pct' ? toPct(val, budget) : val;
+				const x = padding.left + (i + 1) * stepX;
+				const y = padding.top + chartH - (dv / sharedMax) * chartH;
 				return `${i === 0 ? 'M' : 'L'}${x},${y}`;
 			})
 			.join(' ');
@@ -115,13 +201,15 @@
 
 	let avgIntervals = $derived.by(() => {
 		if (flows.length === 0) return [];
+		const maxLen = word.length - 1; // inter-key intervals count
 		const avgs: number[] = [];
-		for (let i = 0; i < word.length; i++) {
+		for (let i = 0; i < maxLen; i++) {
 			let sum = 0;
 			let count = 0;
 			for (const f of flows) {
-				if (i < f.letterIntervals.length) {
-					sum += f.letterIntervals[i];
+				const interKey = getTypingIntervals(f);
+				if (i < interKey.length) {
+					sum += interKey[i];
 					count++;
 				}
 			}
@@ -150,15 +238,18 @@
 		return counts;
 	});
 
-	// Per-letter average hesitation (across all flows)
+	// Per-letter average hesitation (inter-key only, letter 0 has no data)
 	let letterAvgs = $derived.by(() => {
 		const avgs: { avg: number; count: number }[] = [];
-		for (let i = 0; i < word.length; i++) {
+		// Letter 0: no inter-key interval
+		avgs.push({ avg: 0, count: 0 });
+		for (let i = 0; i < word.length - 1; i++) {
 			let sum = 0;
 			let count = 0;
 			for (const f of flows) {
-				if (i < f.letterIntervals.length) {
-					sum += f.letterIntervals[i];
+				const interKey = getTypingIntervals(f);
+				if (i < interKey.length) {
+					sum += interKey[i];
 					count++;
 				}
 			}
@@ -169,7 +260,7 @@
 
 	// Overall consistency (coefficient of variation across all intervals)
 	let consistency = $derived.by(() => {
-		const allIntervals = flows.flatMap(f => f.letterIntervals);
+		const allIntervals = flows.flatMap(f => getTypingIntervals(f)).filter(v => v > 0);
 		if (allIntervals.length < 2) return null;
 		const mean = allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length;
 		const stdDev = Math.sqrt(allIntervals.reduce((s, v) => s + (v - mean) ** 2, 0) / allIntervals.length);
@@ -217,7 +308,7 @@
 		}));
 	});
 
-	let hoveredPoint: { x: number; y: number; val: number; letter: string; isHesitation: boolean; isRush: boolean } | null = $state(null);
+	let hoveredPoint: { x: number; y: number; val: number; letter: string; isHesitation: boolean; isRush: boolean; isReaction: boolean } | null = $state(null);
 
 	const viewLabels = ['latest', 'history', 'insights'] as const;
 </script>
@@ -226,7 +317,18 @@
 	<div class="mt-3 border-t border-base-border pt-3">
 		<!-- Header with view tabs -->
 		<div class="mb-2 flex items-center justify-between">
-			<h4 class="text-xs font-semibold tracking-wide text-accent uppercase">Typing Flow</h4>
+			<div class="flex items-center gap-2">
+				<h4 class="text-xs font-semibold tracking-wide text-accent uppercase">Typing Flow</h4>
+				{#if view !== 'insights'}
+					<button
+						onclick={() => chartUnit = chartUnit === 'ms' ? 'pct' : 'ms'}
+						class="rounded px-1 py-0.5 text-[9px] font-mono transition-colors {chartUnit === 'pct' ? 'bg-purple-500/20 text-purple-400' : 'text-base-text-muted hover:text-base-text'}"
+						title={chartUnit === 'ms' ? 'Switch to % of time budget (comparable across speeds)' : 'Switch to raw milliseconds'}
+					>
+						{chartUnit === 'ms' ? 'ms' : '%'}
+					</button>
+				{/if}
+			</div>
 			<div class="flex gap-1">
 				{#each viewLabels as v}
 					<button
@@ -255,6 +357,25 @@
 						</span>
 						<span>{formatDate(activeFlow.timestamp)}</span>
 					</div>
+					<!-- Average speed stats -->
+					{#if flows.length > 1}
+						<div class="mb-1.5 flex flex-wrap gap-3 text-[10px] text-base-text-muted">
+							<span>avg: <span class="text-cyan-400 font-bold">{formatMs(overallAvgSpeed)}</span></span>
+							{#if fastestDuration > 0}
+								<span>best: <span class="text-green-400 font-bold">{formatMs(fastestDuration)}</span></span>
+							{/if}
+							<span>react: <span class="{avgReactionTime > 3000 ? 'text-red-400' : avgReactionTime > 1500 ? 'text-amber-400' : 'text-green-400'} font-bold">{formatMs(avgReactionTime)}</span></span>
+							<span>attempts: <span class="text-accent">{flows.length}</span></span>
+						</div>
+					{/if}
+					{#if flows.length <= 1 && activeReaction > 0}
+						<div class="mb-1.5 text-[10px] text-base-text-muted">
+							react: <span class="{activeReaction > 3000 ? 'text-red-400' : activeReaction > 1500 ? 'text-amber-400' : 'text-green-400'} font-bold">{formatMs(activeReaction)}</span>
+							{#if activeFlow?.speed}
+								<span class="ml-2">speed: <span class="text-accent">{activeFlow.speed.toFixed(2)}x</span></span>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -280,7 +401,7 @@
 							fill="var(--theme-text-muted, #6b7280)"
 							font-size="7"
 						>
-							{formatMs(activeMax * pct)}
+							{formatVal(activeMax * pct)}
 						</text>
 					{/each}
 
@@ -306,6 +427,32 @@
 						</text>
 					{/if}
 
+					<!-- 100% budget line (only in % mode) -->
+					{#if chartUnit === 'pct' && activeMax > 0}
+						{@const budgetY = padding.top + chartH - (100 / activeMax) * chartH}
+						{#if budgetY >= padding.top && budgetY <= padding.top + chartH}
+							<line
+								x1={padding.left}
+								y1={budgetY}
+								x2={padding.left + chartW}
+								y2={budgetY}
+								stroke="#ef4444"
+								stroke-width="0.8"
+								stroke-dasharray="6 3"
+								opacity="0.5"
+							/>
+							<text
+								x={padding.left + chartW + 2}
+								y={budgetY + 3}
+								fill="#ef4444"
+								font-size="6"
+								opacity="0.7"
+							>
+								100%
+							</text>
+						{/if}
+					{/if}
+
 					<!-- Flow line -->
 					{#if activePath}
 						<path d={activePath} fill="none" stroke="var(--theme-accent, #f59e0b)" stroke-width="2" stroke-linejoin="round" />
@@ -322,7 +469,7 @@
 							{#if pt.val !== null}
 								<circle
 									cx={pt.x} cy={pt.y} r="3.5"
-									fill={pt.isHesitation ? '#f59e0b' : pt.isRush ? '#06b6d4' : activeFlow?.correct ? '#22c55e' : '#ef4444'}
+									fill={pt.isReaction ? '#a855f7' : pt.isHesitation ? '#f59e0b' : pt.isRush ? '#06b6d4' : activeFlow?.correct ? '#22c55e' : '#ef4444'}
 									stroke="var(--theme-surface, #1f2937)" stroke-width="1"
 								/>
 							{:else}
@@ -338,7 +485,7 @@
 								x={pt.x}
 								y={padding.top + chartH + 14}
 								text-anchor="middle"
-								fill={pt.val !== null ? (pt.isHesitation ? '#f59e0b' : 'var(--theme-accent, #d4a574)') : '#4b5563'}
+								fill={pt.val !== null ? (pt.isReaction ? '#a855f7' : pt.isHesitation ? '#f59e0b' : 'var(--theme-accent, #d4a574)') : '#4b5563'}
 								font-size="8"
 								font-weight={pt.isHesitation ? '900' : 'bold'}
 								opacity={pt.val !== null ? 1 : 0.4}
@@ -350,7 +497,7 @@
 
 					<!-- Hover tooltip -->
 					{#if hoveredPoint}
-						{@const label = hoveredPoint.isHesitation ? 'hesitation' : hoveredPoint.isRush ? 'autopilot' : ''}
+						{@const label = hoveredPoint.isReaction ? 'reaction' : hoveredPoint.isHesitation ? 'hesitation' : hoveredPoint.isRush ? 'autopilot' : ''}
 						{@const tooltipW = label ? 60 : 36}
 						<rect
 							x={Math.min(hoveredPoint.x - tooltipW / 2, width - tooltipW - 2)}
@@ -359,7 +506,7 @@
 							height={label ? 20 : 14}
 							rx="3"
 							fill="var(--theme-surface, #1f2937)"
-							stroke={hoveredPoint.isHesitation ? '#f59e0b' : hoveredPoint.isRush ? '#06b6d4' : 'var(--theme-accent, #f59e0b)'}
+							stroke={hoveredPoint.isReaction ? '#a855f7' : hoveredPoint.isHesitation ? '#f59e0b' : hoveredPoint.isRush ? '#06b6d4' : 'var(--theme-accent, #f59e0b)'}
 							stroke-width="0.5"
 						/>
 						<text
@@ -370,14 +517,14 @@
 							font-size="7"
 							font-weight="bold"
 						>
-							{formatMs(hoveredPoint.val)}
+							{formatVal(hoveredPoint.val)}
 						</text>
 						{#if label}
 							<text
 								x={Math.min(hoveredPoint.x, width - tooltipW / 2 - 2)}
 								y={hoveredPoint.y - 5}
 								text-anchor="middle"
-								fill={hoveredPoint.isHesitation ? '#f59e0b' : '#06b6d4'}
+								fill={hoveredPoint.isReaction ? '#a855f7' : hoveredPoint.isHesitation ? '#f59e0b' : '#06b6d4'}
 								font-size="6"
 							>
 								{label}
@@ -388,10 +535,14 @@
 
 				<!-- Legend -->
 				<div class="mt-1 flex flex-wrap gap-3 text-[9px] text-base-text-muted">
+					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-purple-500"></span> reaction</span>
 					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-green-500"></span> correct</span>
 					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-red-500"></span> error</span>
 					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-amber-500"></span> hesitation</span>
 					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-cyan-500"></span> autopilot</span>
+					{#if chartUnit === 'pct'}
+						<span class="flex items-center gap-1"><span class="inline-block h-0.5 w-3 rounded border-b border-dashed border-red-500/50"></span> budget</span>
+					{/if}
 					{#if activeFlow && !activeFlow.correct}
 						<span class="flex items-center gap-1"><span class="text-[#4b5563]">-</span> untyped</span>
 					{/if}
@@ -437,13 +588,14 @@
 							fill="var(--theme-text-muted, #6b7280)"
 							font-size="7"
 						>
-							{formatMs(overlayMax * pct)}
+							{formatVal(overlayMax * pct)}
 						</text>
 					{/each}
 
 					<!-- Individual flow lines -->
 					{#each flows as flow, i}
-						{@const path = buildOverlayPath(flow.letterIntervals, overlayMax)}
+						{@const interKey = getTypingIntervals(flow)}
+						{@const path = buildOverlayPath(interKey, overlayMax, flow)}
 						{#if path}
 							<path
 								d={path}
@@ -455,13 +607,40 @@
 								stroke-dasharray={flow.correct ? 'none' : '3 2'}
 							/>
 							<!-- Error breakpoint marker -->
-							{#if !flow.correct}
-								{@const breakX = padding.left + (flow.letterIntervals.length - 1) * overlayStepX}
-								{@const breakY = padding.top + chartH - (flow.letterIntervals[flow.letterIntervals.length - 1] / overlayMax) * chartH}
+							{#if !flow.correct && interKey.length > 0}
+								{@const breakIdx = interKey.length - 1}
+								{@const breakX = padding.left + (breakIdx + 1) * overlayStepX}
+								{@const breakY = padding.top + chartH - (interKey[breakIdx] / overlayMax) * chartH}
 								<circle cx={breakX} cy={breakY} r="2" fill="#ef4444" opacity="0.6" />
 							{/if}
 						{/if}
 					{/each}
+
+					<!-- 100% budget line (only in % mode) -->
+					{#if chartUnit === 'pct' && overlayMax > 0}
+						{@const budgetY = padding.top + chartH - (100 / overlayMax) * chartH}
+						{#if budgetY >= padding.top && budgetY <= padding.top + chartH}
+							<line
+								x1={padding.left}
+								y1={budgetY}
+								x2={padding.left + chartW}
+								y2={budgetY}
+								stroke="#ef4444"
+								stroke-width="0.8"
+								stroke-dasharray="6 3"
+								opacity="0.5"
+							/>
+							<text
+								x={padding.left + chartW + 2}
+								y={budgetY + 3}
+								fill="#ef4444"
+								font-size="6"
+								opacity="0.7"
+							>
+								100%
+							</text>
+						{/if}
+					{/if}
 
 					<!-- Average line (bold white) -->
 					{#if overlayAvgPath}
@@ -496,7 +675,11 @@
 					<span>Attempts: <span class="text-accent">{flows.length}</span></span>
 					<span>Correct: <span class="text-green-400">{correctFlows.length}</span></span>
 					<span>Errors: <span class="text-red-400">{errorFlows.length}</span></span>
-					<span>Avg: <span class="text-cyan-400">{formatMs(flows.reduce((s, f) => s + (f.totalDuration || f.letterIntervals.reduce((a, b) => a + b, 0)), 0) / flows.length)}</span></span>
+					<span>Avg: <span class="text-cyan-400">{formatMs(overallAvgSpeed)}</span></span>
+					{#if fastestDuration > 0}
+						<span>Best: <span class="text-green-400">{formatMs(fastestDuration)}</span></span>
+					{/if}
+					<span>React: <span class="{avgReactionTime > 3000 ? 'text-red-400' : avgReactionTime > 1500 ? 'text-amber-400' : 'text-green-400'}">{formatMs(avgReactionTime)}</span></span>
 				</div>
 			</div>
 

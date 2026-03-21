@@ -31,6 +31,10 @@
       "build/**/*",
       "electron/**/*"
     ],
+    "asarUnpack": [
+      "build/**/*.wav",
+      "build/**/*.png"
+    ],
     "directories": {
       "output": "dist-electron"
     }

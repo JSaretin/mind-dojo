@@ -104,6 +104,90 @@
 			console.error('Failed to save word:', error);
 		}
 	}
+
+	let exportStatus = $state('');
+	let showExportDialog = $state(false);
+	let exportOptions = $state({
+		words: true,
+		typingFlows: true,
+		journals: true,
+		stats: true,
+		settings: true,
+		dojoProgress: true,
+		onlyStarred: false,
+		onlyFiltered: false,
+	});
+
+	async function exportData() {
+		try {
+			const fullData = await mindDojo.database.exportData();
+			const data: Record<string, unknown> = {
+				exportedAt: fullData.exportedAt,
+				version: fullData.version,
+			};
+
+			if (exportOptions.settings) data.settings = fullData.settings;
+			if (exportOptions.dojoProgress) data.dojoProgress = fullData.dojoProgress;
+
+			if (exportOptions.words) {
+				let wordsToExport = fullData.words;
+
+				if (exportOptions.onlyFiltered) {
+					const filteredSet = new Set(filteredWords.map(w => w.word.word));
+					wordsToExport = wordsToExport.filter(w => filteredSet.has(w.word.word));
+				}
+				if (exportOptions.onlyStarred) {
+					wordsToExport = wordsToExport.filter(w => w.stats.starred);
+				}
+
+				data.words = wordsToExport.map(w => {
+					const word: Record<string, unknown> = { word: w.word, createdAt: w.createdAt };
+					if (exportOptions.stats) word.stats = w.stats;
+					if (exportOptions.typingFlows) word.typingFlows = w.typingFlows;
+					if (exportOptions.journals) word.jounal = w.jounal;
+					return word;
+				});
+			}
+
+			const json = JSON.stringify(data, null, 2);
+			const blob = new Blob([json], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `mind-dojo-export-${new Date().toISOString().slice(0, 10)}.json`;
+			a.click();
+			URL.revokeObjectURL(url);
+			showExportDialog = false;
+			exportStatus = 'Exported';
+			setTimeout(() => exportStatus = '', 2000);
+		} catch (e) {
+			exportStatus = 'Export failed';
+			setTimeout(() => exportStatus = '', 3000);
+		}
+	}
+
+	async function importData() {
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.accept = '.json';
+		input.onchange = async () => {
+			const file = input.files?.[0];
+			if (!file) return;
+			try {
+				const text = await file.text();
+				const data = JSON.parse(text);
+				const result = await mindDojo.database.importData(data);
+				exportStatus = `Imported ${result.imported} words${result.skipped ? `, ${result.skipped} skipped` : ''}`;
+				// Reload words
+				words = await mindDojo.database.getAllWords();
+				setTimeout(() => exportStatus = '', 3000);
+			} catch {
+				exportStatus = 'Import failed — invalid file';
+				setTimeout(() => exportStatus = '', 3000);
+			}
+		};
+		input.click();
+	}
 </script>
 
 <div class="fixed inset-0 z-50 flex bg-base">
@@ -356,4 +440,92 @@
 			</div>
 		</div>
 	</div>
+
+	<!-- Footer with export/import -->
+	<div class="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between border-t border-base-border bg-surface px-4 py-2">
+		<div class="flex items-center gap-2">
+			<button
+				onclick={() => showExportDialog = true}
+				class="rounded border border-base-border px-3 py-1 text-[11px] text-base-text-muted transition-colors hover:border-accent hover:text-accent"
+			>
+				Export
+			</button>
+			<button
+				onclick={importData}
+				class="rounded border border-base-border px-3 py-1 text-[11px] text-base-text-muted transition-colors hover:border-accent hover:text-accent"
+			>
+				Import
+			</button>
+			{#if exportStatus}
+				<span class="text-[11px] text-green-400">{exportStatus}</span>
+			{/if}
+		</div>
+		<div class="text-[10px] text-base-text-muted">
+			{words.length} words &middot; {words.reduce((s, w) => s + (w.typingFlows?.length || 0), 0)} typing flows
+		</div>
+	</div>
+
+	<!-- Export dialog -->
+	{#if showExportDialog}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+			onclick={(e) => { if (e.target === e.currentTarget) showExportDialog = false; }}
+		>
+			<div class="w-full max-w-sm rounded-xl border border-base-border bg-surface p-5 shadow-2xl">
+				<h3 class="mb-4 text-sm font-bold text-accent">Export Data</h3>
+
+				<div class="space-y-2">
+					<span class="text-[10px] font-bold uppercase tracking-wider text-base-text-muted">Include</span>
+
+					{#each [
+						{ key: 'words', label: 'Words & meanings' },
+						{ key: 'stats', label: 'Typing stats (correct, errors, seen)' },
+						{ key: 'typingFlows', label: 'Typing flows (per-letter timing data)' },
+						{ key: 'journals', label: 'Journal entries & tags' },
+						{ key: 'settings', label: 'Settings' },
+						{ key: 'dojoProgress', label: 'Progress (XP, belt, level)' },
+					] as opt}
+						<label class="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+							<input
+								type="checkbox"
+								checked={exportOptions[opt.key as keyof typeof exportOptions] as boolean}
+								onchange={(e) => { (exportOptions as any)[opt.key] = (e.target as HTMLInputElement).checked; }}
+								class="accent-accent"
+							/>
+							<span class="text-xs text-base-text">{opt.label}</span>
+						</label>
+					{/each}
+				</div>
+
+				<div class="mt-4 space-y-2">
+					<span class="text-[10px] font-bold uppercase tracking-wider text-base-text-muted">Filter</span>
+
+					<label class="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+						<input type="checkbox" bind:checked={exportOptions.onlyStarred} class="accent-accent" />
+						<span class="text-xs text-base-text">Starred words only</span>
+					</label>
+					<label class="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+						<input type="checkbox" bind:checked={exportOptions.onlyFiltered} class="accent-accent" />
+						<span class="text-xs text-base-text">Current filter/search only <span class="text-base-text-muted">({filteredWords.length} words)</span></span>
+					</label>
+				</div>
+
+				<div class="mt-5 flex items-center justify-between">
+					<button
+						onclick={() => showExportDialog = false}
+						class="rounded px-3 py-1.5 text-xs text-base-text-muted hover:text-base-text"
+					>
+						Cancel
+					</button>
+					<button
+						onclick={exportData}
+						class="rounded-md bg-accent px-4 py-1.5 text-xs font-bold text-black transition-colors hover:bg-accent/90"
+					>
+						Export JSON
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>

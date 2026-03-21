@@ -57,6 +57,8 @@ const defaultSetting: MindDojoSettings = {
     stealthTimer: true,
     sessionDuration: 0,
     restDuration: 0,
+    zenMode: false,
+    lockedMinSpeed: 0,
 };
 
 
@@ -283,6 +285,11 @@ export class MindDojo {
 
     private keystrokeTimestamps: number[] = []
     private wordShownAt: number = 0
+    /** Live reaction time in ms — time since word appeared, resets to null on first keystroke */
+    reactionTimeMs: number | null = $state(null)
+    private reactionTimer: number | null = null
+    /** Last completed reaction time for display */
+    lastReactionTime: number = $state(0)
 
 
 
@@ -302,8 +309,15 @@ export class MindDojo {
 
     private loadGameSound() {
         if (!browser) return
-        this.gameSound.win = new Audio("/win.wav")
-        this.gameSound.wrong = new Audio("/wrong.wav")
+        const win = new Audio("/win.wav")
+        const wrong = new Audio("/wrong.wav")
+        // Force preload so audio is ready to play immediately
+        win.preload = 'auto'
+        wrong.preload = 'auto'
+        win.load()
+        wrong.load()
+        this.gameSound.win = win
+        this.gameSound.wrong = wrong
     }
 
     private shuffle<T>(array: T[]): T[] {
@@ -374,20 +388,31 @@ export class MindDojo {
 
     private buildTypingFlow(correct: boolean): TypingFlow {
         const intervals: number[] = []
+        const reactionTime = this.keystrokeTimestamps.length > 0
+            ? this.keystrokeTimestamps[0] - this.wordShownAt
+            : 0
+        // First letter interval is 0 (reaction time is tracked separately)
         if (this.keystrokeTimestamps.length > 0) {
-            intervals.push(this.keystrokeTimestamps[0] - this.wordShownAt)
+            intervals.push(0)
         }
         for (let i = 1; i < this.keystrokeTimestamps.length; i++) {
             intervals.push(this.keystrokeTimestamps[i] - this.keystrokeTimestamps[i - 1])
         }
+        const firstKeystroke = this.keystrokeTimestamps.length > 0
+            ? this.keystrokeTimestamps[0]
+            : this.wordShownAt
         const lastKeystroke = this.keystrokeTimestamps.length > 0
             ? this.keystrokeTimestamps[this.keystrokeTimestamps.length - 1]
             : this.wordShownAt
+        const speed = Math.max(this.settings.speed || 0, 1)
         return {
             letterIntervals: intervals,
-            totalDuration: lastKeystroke - this.wordShownAt,
+            reactionTime,
+            totalDuration: lastKeystroke - firstKeystroke,
             timestamp: Date.now(),
             correct,
+            speed: this.settings.speed,
+            msPerLetter: 1000 / speed,
         }
     }
 
@@ -448,7 +473,23 @@ export class MindDojo {
 
         this.settings.speed = parseFloat(nextSpeed.toFixed(4));
         this.savedLevelSpeed = this.settings.speed
+
+        // Commitment lock: update the floor speed on level-up
+        if (this.settings.lockedMinSpeed > 0) {
+            this.settings.lockedMinSpeed = this.settings.speed;
+        }
+
         this.dojoState.progress = 0;
+    }
+
+    /** Activate commitment lock at current speed */
+    lockSpeed() {
+        this.settings.lockedMinSpeed = this.settings.speed;
+    }
+
+    /** Release commitment lock */
+    unlockSpeed() {
+        this.settings.lockedMinSpeed = 0;
     }
 
     handleError() {
@@ -483,8 +524,13 @@ export class MindDojo {
     }
 
     playSound(audio: HTMLAudioElement, start: number = 0.0) {
-        audio.currentTime = start
-        audio.play()
+        try {
+            audio.currentTime = start
+        } catch {
+            // Seeking may fail on custom protocols — play from beginning
+            audio.currentTime = 0
+        }
+        audio.play().catch(() => {})
     }
 
     playLetter(letter: string, start = 0.0) {
@@ -594,6 +640,16 @@ export class MindDojo {
         const key = event.key
         event.preventDefault()
         if (this.currentWord?.word.length === this.typedWord.length) return
+
+        // Stop reaction timer on first keystroke
+        if (this.keystrokeTimestamps.length === 0 && this.reactionTimeMs !== null) {
+            this.lastReactionTime = this.reactionTimeMs;
+            this.reactionTimeMs = null;
+            if (this.reactionTimer) {
+                cancelAnimationFrame(this.reactionTimer);
+                this.reactionTimer = null;
+            }
+        }
 
         this.keystrokeTimestamps.push(performance.now())
         this.typedWord += key
@@ -771,6 +827,17 @@ export class MindDojo {
         this.typedWord = "";
         this.keystrokeTimestamps = [];
         this.wordShownAt = performance.now();
+
+        // Start reaction time counter
+        this.reactionTimeMs = 0;
+        if (this.reactionTimer) cancelAnimationFrame(this.reactionTimer);
+        const reactionStart = this.wordShownAt;
+        const tickReaction = (now: number) => {
+            if (this.reactionTimeMs === null) return; // stopped on first key
+            this.reactionTimeMs = now - reactionStart;
+            this.reactionTimer = requestAnimationFrame(tickReaction);
+        };
+        this.reactionTimer = requestAnimationFrame(tickReaction);
 
         // ✅ reset durations
         this.setTimer();

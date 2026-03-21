@@ -415,8 +415,8 @@
 	<!-- Screen flash overlay -->
 	<div class="pointer-events-none fixed inset-0 z-40 {flashClass}"></div>
 
-	<!-- Floating XP text -->
-	{#if floatingText}
+	<!-- Floating XP text (hidden in zen mode) -->
+	{#if floatingText && !mindDojo?.settings.zenMode}
 		<div class="pointer-events-none fixed inset-0 z-40 flex items-center justify-center">
 			<div class="floating-text {floatingText.type === 'rank-up' ? 'text-3xl font-black text-accent' : 'text-xl font-bold text-green-400'}">
 				{floatingText.text}
@@ -427,6 +427,7 @@
 	<div class="relative min-h-screen w-full">
 		<!-- Top HUD -->
 		<div class="fixed top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2">
+			{#if !mindDojo.settings.zenMode}
 			<!-- Belt, XP & Timer (left) -->
 			<div class="flex items-center gap-3">
 				{#if !mindDojo.settings.hideTimer}
@@ -435,6 +436,16 @@
 						maxDuration={mindDojo.wordMaxDuration}
 						stealth={mindDojo.settings.stealthTimer}
 					/>
+				{/if}
+				<!-- Reaction time indicator -->
+				{#if mindDojo.reactionTimeMs !== null}
+					<span class="font-mono text-[11px] {mindDojo.reactionTimeMs > 3000 ? 'text-red-400' : mindDojo.reactionTimeMs > 1500 ? 'text-amber-400' : 'text-base-text-muted'}">
+						{(mindDojo.reactionTimeMs / 1000).toFixed(1)}s
+					</span>
+				{:else if mindDojo.lastReactionTime > 0}
+					<span class="font-mono text-[10px] text-base-text-muted/50">
+						{mindDojo.lastReactionTime < 1000 ? `${Math.round(mindDojo.lastReactionTime)}ms` : `${(mindDojo.lastReactionTime / 1000).toFixed(1)}s`}
+					</span>
 				{/if}
 				<div class="flex items-center gap-2">
 					<div class="h-3 w-3 rounded-full border border-base-border" style="background: {mindDojo.belt.color};"></div>
@@ -502,6 +513,33 @@
 					</svg>
 				</button>
 			</div>
+			{:else}
+			<!-- Zen mode: only show action buttons -->
+			<div class="flex-1"></div>
+			<div class="flex items-center gap-3">
+				<button
+					onclick={toggleJournal}
+					class="rounded-lg p-1.5 text-base-text-muted/30 transition-colors hover:text-base-text-muted"
+					title="Journal (Ctrl+J)"
+					aria-label="Open journal"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+					</svg>
+				</button>
+				<button
+					onclick={toggleSettingPopup}
+					class="rounded-lg p-1.5 text-base-text-muted/30 transition-colors hover:text-base-text-muted"
+					title="Settings (Ctrl+S)"
+					aria-label="Open settings"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					</svg>
+				</button>
+			</div>
+			{/if}
 		</div>
 
 		<!-- Game Area -->
@@ -516,7 +554,7 @@
 				/>
 			</div>
 
-			{#if !mindDojo.settings.hideProgressBar}
+			{#if !mindDojo.settings.hideProgressBar && !mindDojo.settings.zenMode}
 				<div class="absolute right-0 bottom-0 left-0">
 					<ProgressBar />
 				</div>
@@ -609,9 +647,11 @@
 				</div>
 			{/if}
 
+			{#if !mindDojo.settings.zenMode}
 			<div class="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-base-text-muted select-none">
 				Ctrl+S settings &middot; Ctrl+H words &middot; Ctrl+J journal &middot; ? help
 			</div>
+			{/if}
 		</div>
 	</div>
 {/if}

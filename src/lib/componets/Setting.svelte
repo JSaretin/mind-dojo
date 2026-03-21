@@ -47,15 +47,25 @@
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
 			<div class="mb-3 flex items-center justify-between">
 				<span class="text-sm font-bold text-accent">Typing Speed</span>
-				<span class="rounded-md bg-accent-muted px-2 py-0.5 font-mono text-sm font-bold text-accent">
-					{((settings.speed || 0) * 12).toFixed(1)} WPM
-				</span>
+				<div class="flex items-center gap-2">
+					{#if settings.lockedMinSpeed > 0}
+						<span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">min {settings.lockedMinSpeed.toFixed(2)}x</span>
+					{/if}
+					<span class="rounded-md bg-accent-muted px-2 py-0.5 font-mono text-sm font-bold text-accent">
+						{((settings.speed || 0) * 12).toFixed(1)} WPM
+					</span>
+				</div>
 			</div>
 			<input
 				type="number"
-				min="0.1"
+				min={settings.lockedMinSpeed > 0 ? settings.lockedMinSpeed : 0.1}
 				step="0.1"
 				bind:value={settings.speed}
+				onchange={() => {
+					if (settings.lockedMinSpeed > 0 && settings.speed < settings.lockedMinSpeed) {
+						settings.speed = settings.lockedMinSpeed;
+					}
+				}}
 				class="w-full rounded-md border border-base-border bg-surface px-3 py-2 font-mono text-base-text focus:border-accent focus:outline-none"
 			/>
 		</div>
@@ -425,6 +435,51 @@
 				<input type="checkbox" bind:checked={settings.saveTypedWord} class="accent-accent" />
 				<span class="text-sm text-base-text">Save typed words to device</span>
 			</label>
+		</div>
+
+		<!-- Zen Mode -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<div class="flex items-center justify-between">
+				<div>
+					<span class="text-sm font-bold text-accent">Zen Mode</span>
+					<p class="mt-0.5 text-[10px] text-base-text-muted">Hide all stats — no XP, no combo, no belt, no progress. Just you and the letters.</p>
+				</div>
+				<label class="relative inline-flex cursor-pointer items-center">
+					<input type="checkbox" bind:checked={settings.zenMode} class="peer sr-only" />
+					<div class="peer h-5 w-9 rounded-full bg-surface-hover after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-base-text-muted after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full peer-checked:after:bg-black"></div>
+				</label>
+			</div>
+		</div>
+
+		<!-- Commitment Lock -->
+		<div class="rounded-lg border {settings.lockedMinSpeed > 0 ? 'border-amber-500/50' : 'border-base-border'} bg-surface-hover/50 p-4">
+			<div class="flex items-center justify-between">
+				<div>
+					<span class="text-sm font-bold text-accent">Commitment Lock</span>
+					<p class="mt-0.5 text-[10px] text-base-text-muted">
+						{#if settings.lockedMinSpeed > 0}
+							Speed locked at minimum <span class="font-bold text-amber-400">{settings.lockedMinSpeed.toFixed(2)}x</span>. No retreat.
+						{:else}
+							Lock your current speed as the floor. You cannot go below it. Raises with each level-up.
+						{/if}
+					</p>
+				</div>
+				{#if settings.lockedMinSpeed > 0}
+					<button
+						onclick={() => mindDojo.unlockSpeed()}
+						class="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/20"
+					>
+						Unlock
+					</button>
+				{:else}
+					<button
+						onclick={() => mindDojo.lockSpeed()}
+						class="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-400 transition-colors hover:bg-amber-500/20"
+					>
+						Lock at {settings.speed.toFixed(2)}x
+					</button>
+				{/if}
+			</div>
 		</div>
 	<!-- THEME TAB -->
 	{:else if activeTab === 'theme'}

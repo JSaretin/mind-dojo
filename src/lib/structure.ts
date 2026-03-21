@@ -14,10 +14,13 @@ export interface Word {
 export type Words = Word[];
 
 export interface TypingFlow {
-    letterIntervals: number[]; // ms between each keystroke (first is time-to-first-key)
-    totalDuration: number;     // total ms from word shown to last keystroke
+    letterIntervals: number[]; // ms between each keystroke (first entry is 0 for first key)
+    reactionTime: number;      // ms from word shown to first keystroke
+    totalDuration: number;     // total ms from first keystroke to last keystroke (excludes reaction)
     timestamp: number;         // when this attempt happened
     correct: boolean;          // whether the word was typed correctly
+    speed?: number;            // speed setting when this attempt happened
+    msPerLetter?: number;      // allowed ms per letter at this speed (1000 / speed)
 }
 
 export interface SavedWord {
@@ -105,5 +108,7 @@ export interface MindDojoSettings {
     stealthTimer: boolean;
     sessionDuration: number; // minutes, 0 = unlimited
     restDuration: number;    // minutes, 0 = skip rest
+    zenMode: boolean;        // hide all stats — just you and the letters
+    lockedMinSpeed: number;  // commitment lock — cannot go below this speed
     // focusKeys: FocusKeys
 }
