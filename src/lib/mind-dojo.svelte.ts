@@ -393,14 +393,15 @@ export class MindDojo {
 
     private updateWordStatsInDb(wordStr: string, updateFn: (savedWord: SavedWord) => SavedWord, flow?: TypingFlow): void {
         if (!browser) return
+        // Capture current word NOW before setTimeout, since pickNextWord() changes it
+        const capturedWord = this.currentWord!
         setTimeout(async () => {
             let savedWord = await this.database.getWord(wordStr)
             const now = Date.now()
 
             if (!savedWord) {
-                // If for some reason the word isn't in DB yet, create a base entry
                 savedWord = {
-                    word: this.currentWord!, // Assuming currentWord is not null here
+                    word: capturedWord,
                     stats: {
                         starred: false,
                         seen: 0,
