@@ -484,7 +484,7 @@
 			</svg>
 
 			<!-- Legend -->
-			<div class="flex items-center gap-4 text-[9px] text-base-text-muted">
+			<div class="flex flex-wrap items-center gap-3 text-[9px] text-base-text-muted">
 				<span class="flex items-center gap-1">
 					<span class="inline-block h-0.5 w-4 rounded" style="background: {chartColor};"></span>
 					{chartMode === 'speed' ? 'avg speed' : chartMode === 'accuracy' ? 'accuracy' : 'words/day'}
@@ -495,6 +495,14 @@
 						7-day avg
 					</span>
 				{/if}
+				<span class="flex items-center gap-1">
+					<span class="inline-block h-2 w-2 rounded-full" style="background: {chartColor};"></span>
+					day
+				</span>
+				<span class="flex items-center gap-1">
+					<span class="inline-block h-2.5 w-2.5 rounded-full bg-amber-500 ring-1 ring-amber-400"></span>
+					selected
+				</span>
 				{#if chartMode === 'speed'}
 					<span class="flex items-center gap-1">
 						<span class="inline-block h-3 w-3 rounded-full border border-dashed border-red-500/60"></span>

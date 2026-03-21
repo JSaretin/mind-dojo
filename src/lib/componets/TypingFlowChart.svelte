@@ -483,8 +483,16 @@
 					{/each}
 				</svg>
 
+				<!-- Legend -->
+				<div class="mt-1.5 flex flex-wrap gap-3 text-[9px] text-base-text-muted">
+					<span class="flex items-center gap-1"><span class="inline-block h-0.5 w-3 rounded bg-white"></span> average</span>
+					<span class="flex items-center gap-1"><span class="inline-block h-0.5 w-3 rounded bg-red-500" style="border-bottom: 1px dashed #ef4444;"></span> error attempt</span>
+					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-red-500"></span> error breakpoint</span>
+					<span class="flex items-center gap-1"><span class="inline-block h-0.5 w-3 rounded bg-green-500 opacity-40"></span> correct attempt</span>
+				</div>
+
 				<!-- Stats summary -->
-				<div class="mt-2 flex flex-wrap gap-3 text-[10px] text-base-text-muted">
+				<div class="mt-1.5 flex flex-wrap gap-3 text-[10px] text-base-text-muted">
 					<span>Attempts: <span class="text-accent">{flows.length}</span></span>
 					<span>Correct: <span class="text-green-400">{correctFlows.length}</span></span>
 					<span>Errors: <span class="text-red-400">{errorFlows.length}</span></span>

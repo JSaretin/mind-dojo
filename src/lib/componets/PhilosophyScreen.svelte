@@ -21,6 +21,7 @@
 					{ id: 'audience', label: 'The Phantom Audience' },
 					{ id: 'progress', label: 'The Fear of Progress' },
 					{ id: 'plateau', label: 'The Plateau' },
+					{ id: 'initiative', label: 'Nothing Moves Until You Do' },
 					{ id: 'level-up', label: 'The Quiet Level-Up' },
 					{ id: 'emotional', label: 'Words That Move You' },
 					{ id: 'emotion-control', label: 'Emotion Is Not a Strategy' },
@@ -185,6 +186,51 @@
 							There is only you, one letter, and this moment.
 							You are fully responsible for the result you get — or fail to get.
 							That responsibility is not a burden. It is freedom.
+						</p>
+					</div>
+				</section>
+
+				<!-- Nothing Moves Until You Do -->
+				<section id="initiative">
+					<h3 class="mb-4 text-2xl font-black text-accent">Nothing Moves Until You Do</h3>
+					<div class="space-y-4 text-sm leading-relaxed text-base-text">
+						<p>
+							When a new word appears, the timer does not start. It waits.
+							The letters sit on the screen, patient and still, for as long as you need.
+							Nothing counts down. Nothing pressures you. The game is completely frozen
+							until you press the first key.
+						</p>
+						<p>
+							This is not a kindness. It is a mirror.
+						</p>
+						<p>
+							Life works the same way. The opportunity sits there. The conversation waits to be had.
+							The work waits to be started. The change waits to be made.
+							And nothing — <span class="font-bold text-accent">nothing</span> — happens until you move.
+							No one is coming to start it for you. No countdown will force your hand.
+							The world does not operate on your behalf. It responds to your initiative, or it doesn't move at all.
+						</p>
+						<p>
+							You can stare at the word forever. You can plan your approach. You can wait
+							for the perfect moment, the right feeling, the certainty that you'll get it right.
+							But the timer will never start on its own.
+							The game will not play itself. And neither will your life.
+						</p>
+						<p>
+							The first keystroke is always the hardest — not because it requires skill,
+							but because it requires <span class="font-bold text-accent">decision</span>.
+							The decision to begin before you're ready. To act before the path is clear.
+							To move before the fear has passed.
+						</p>
+						<p>
+							Notice how you feel in that pause before typing. Is there resistance?
+							A desire to wait just a little longer? That is the same force that keeps people
+							stuck in jobs they hate, relationships that drain them, habits that destroy them.
+							Not inability. Not ignorance. Just the quiet refusal to begin.
+						</p>
+						<p class="border-l-2 border-accent/50 pl-4 italic text-base-text-muted">
+							Nothing works unless you do. The timer is waiting.
+							It has always been waiting. Press the key.
 						</p>
 					</div>
 				</section>
