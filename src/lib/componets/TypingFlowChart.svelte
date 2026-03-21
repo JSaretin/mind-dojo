@@ -388,6 +388,8 @@
 
 				<!-- Legend -->
 				<div class="mt-1 flex flex-wrap gap-3 text-[9px] text-base-text-muted">
+					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-green-500"></span> correct</span>
+					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-red-500"></span> error</span>
 					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-amber-500"></span> hesitation</span>
 					<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-cyan-500"></span> autopilot</span>
 					{#if activeFlow && !activeFlow.correct}
