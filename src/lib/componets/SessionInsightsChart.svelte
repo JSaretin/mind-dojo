@@ -12,7 +12,7 @@
 		selectedDate?: string | null;
 	} = $props();
 
-	let activeChart: 'flow' | 'accuracy' | 'reaction' | 'length' | 'assumptions' | 'heatmap' = $state('flow');
+	let activeChart: 'flow' | 'accuracy' | 'reaction' | 'length' | 'assumptions' | 'heatmap' | 'sessions' = $state('flow');
 
 	interface WordFlow {
 		word: string;
@@ -129,6 +129,180 @@
 			}
 		}
 		return breaks;
+	});
+
+	// ── SESSION AGGREGATION ──
+	interface DaySession {
+		index: number;
+		startTime: string;
+		endTime: string;
+		wordCount: number;
+		accuracy: number;
+		instantFails: number;
+		avgSpeed: number;
+		first30Accuracy: number;
+		last30Accuracy: number;
+		fatigueDelta: number;
+		presenceCV: number;
+	}
+
+	function sessionCV(flows: WordFlow[]): number {
+		const intervals: number[] = [];
+		for (const f of flows) {
+			if (!f.flow.correct) continue;
+			const interKey = f.flow.letterIntervals.slice(1).filter(v => v > 0);
+			intervals.push(...interKey);
+		}
+		if (intervals.length < 5) return 0;
+		const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+		const stdDev = Math.sqrt(intervals.reduce((s, v) => s + (v - mean) ** 2, 0) / intervals.length);
+		return mean > 0 ? stdDev / mean : 0;
+	}
+
+	function sliceAccuracy(flows: WordFlow[], start: number, count: number): number {
+		const slice = flows.slice(start, start + count);
+		if (slice.length === 0) return 0;
+		return (slice.filter(f => f.flow.correct).length / slice.length) * 100;
+	}
+
+	let daySessions = $derived.by((): DaySession[] => {
+		if (dayFlows.length === 0) return [];
+
+		// Split dayFlows into session chunks using breakIndices
+		const sessionChunks: WordFlow[][] = [];
+		let chunkStart = 0;
+		const sortedBreaks = [...breakIndices].sort((a, b) => a - b);
+		for (const brk of sortedBreaks) {
+			if (brk > chunkStart) {
+				sessionChunks.push(dayFlows.slice(chunkStart, brk));
+			}
+			chunkStart = brk;
+		}
+		if (chunkStart < dayFlows.length) {
+			sessionChunks.push(dayFlows.slice(chunkStart));
+		}
+
+		// Map allDayFlows to session time ranges for instant-fail count
+		return sessionChunks.map((chunk, idx) => {
+			const startTs = chunk[0].flow.timestamp;
+			const endTs = chunk[chunk.length - 1].flow.timestamp;
+			const correct = chunk.filter(f => f.flow.correct).length;
+			const speeds = chunk.map(f => f.flow.speed).filter((s): s is number => typeof s === 'number' && s > 0);
+			const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+
+			// Count instant fails in this session's time range from allDayFlows
+			const instantFails = allDayFlows.filter(f =>
+				f.flow.timestamp >= startTs && f.flow.timestamp <= endTs && isInstantFail(f.flow)
+			).length;
+
+			const first30 = sliceAccuracy(chunk, 0, Math.min(30, chunk.length));
+			const last30 = sliceAccuracy(chunk, Math.max(0, chunk.length - 30), 30);
+
+			return {
+				index: idx + 1,
+				startTime: new Date(startTs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+				endTime: new Date(endTs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+				wordCount: chunk.length,
+				accuracy: chunk.length > 0 ? Math.round((correct / chunk.length) * 100) : 0,
+				instantFails,
+				avgSpeed: Math.round(avgSpeed * 100) / 100,
+				first30Accuracy: Math.round(first30),
+				last30Accuracy: Math.round(last30),
+				fatigueDelta: Math.round(last30 - first30),
+				presenceCV: Math.round(sessionCV(chunk) * 100) / 100,
+			};
+		});
+	});
+
+	// ── SESSION INSIGHTS ──
+	let sessionInsights = $derived.by(() => {
+		if (daySessions.length === 0) return null;
+
+		// Best accuracy
+		const bestAccuracy = Math.max(...daySessions.map(s => s.accuracy));
+
+		// Average length
+		const avgLength = Math.round(daySessions.reduce((s, sess) => s + sess.wordCount, 0) / daySessions.length);
+
+		// Optimal length: avg word count where rolling 20-word accuracy first drops below 60%
+		// across sessions with 50+ words
+		const bigSessions = daySessions.filter(s => s.wordCount >= 50);
+		let optimalLength: number | null = null;
+		if (bigSessions.length > 0) {
+			// For each big session, find the dayFlows chunk and compute where rolling accuracy drops
+			let dropPoints: number[] = [];
+			let chunkStart = 0;
+			const sortedBreaks = [...breakIndices].sort((a, b) => a - b);
+			const sessionStarts: number[] = [0];
+			for (const brk of sortedBreaks) sessionStarts.push(brk);
+
+			for (let si = 0; si < sessionStarts.length; si++) {
+				const start = sessionStarts[si];
+				const end = si < sessionStarts.length - 1 ? sessionStarts[si + 1] : dayFlows.length;
+				const chunk = dayFlows.slice(start, end);
+				if (chunk.length < 50) continue;
+
+				const windowSize = 20;
+				for (let i = windowSize - 1; i < chunk.length; i++) {
+					let correct = 0;
+					for (let j = i - windowSize + 1; j <= i; j++) {
+						if (chunk[j].flow.correct) correct++;
+					}
+					if ((correct / windowSize) * 100 < 60) {
+						dropPoints.push(i + 1);
+						break;
+					}
+				}
+			}
+			if (dropPoints.length > 0) {
+				optimalLength = Math.round(dropPoints.reduce((a, b) => a + b, 0) / dropPoints.length);
+			}
+		}
+
+		// Best time: hour with highest accuracy across sessions
+		const hourBuckets: Record<number, { correct: number; total: number }> = {};
+		for (const f of dayFlows) {
+			const h = new Date(f.flow.timestamp).getHours();
+			if (!hourBuckets[h]) hourBuckets[h] = { correct: 0, total: 0 };
+			hourBuckets[h].total++;
+			if (f.flow.correct) hourBuckets[h].correct++;
+		}
+		let bestHour = '';
+		let bestHourAcc = 0;
+		for (const [h, b] of Object.entries(hourBuckets)) {
+			const acc = b.total > 0 ? (b.correct / b.total) * 100 : 0;
+			if (acc > bestHourAcc) {
+				bestHourAcc = acc;
+				bestHour = `${h.padStart(2, '0')}:00`;
+			}
+		}
+
+		// Recovery effect: avg accuracy gain at start of session vs end of previous session
+		let recoveryEffect: number | null = null;
+		if (daySessions.length >= 2) {
+			const deltas: number[] = [];
+			for (let i = 1; i < daySessions.length; i++) {
+				deltas.push(daySessions[i].first30Accuracy - daySessions[i - 1].last30Accuracy);
+			}
+			recoveryEffect = Math.round(deltas.reduce((a, b) => a + b, 0) / deltas.length);
+		}
+
+		// Session efficiency
+		const shortSessions = daySessions.filter(s => s.wordCount < 100);
+		const longSessions = daySessions.filter(s => s.wordCount > 200);
+		const shortAvg = shortSessions.length > 0 ? Math.round(shortSessions.reduce((s, sess) => s + sess.accuracy, 0) / shortSessions.length) : null;
+		const longAvg = longSessions.length > 0 ? Math.round(longSessions.reduce((s, sess) => s + sess.accuracy, 0) / longSessions.length) : null;
+
+		return {
+			bestAccuracy,
+			avgLength,
+			optimalLength,
+			bestHour,
+			bestHourAcc: Math.round(bestHourAcc),
+			recoveryEffect,
+			shortAvg,
+			longAvg,
+		};
 	});
 
 	// Format timestamp for X-axis labels
@@ -982,7 +1156,7 @@
 
 		<!-- Summary row -->
 		{#if summary}
-			<div class="grid grid-cols-3 gap-1.5">
+			<div class="grid grid-cols-4 gap-1.5">
 				<div class="rounded border border-base-border bg-surface-hover/50 px-2 py-1.5 text-center">
 					<div class="text-sm font-black {summary.accuracy >= 60 ? 'text-green-400' : summary.accuracy >= 40 ? 'text-amber-400' : 'text-red-400'}">{summary.accuracy}%</div>
 					<div class="text-[8px] text-base-text-muted">accuracy</div>
@@ -994,6 +1168,10 @@
 				<div class="rounded border border-base-border bg-surface-hover/50 px-2 py-1.5 text-center">
 					<div class="text-sm font-black text-orange-400">{summary.assumptions}</div>
 					<div class="text-[8px] text-base-text-muted">rushed</div>
+				</div>
+				<div class="rounded border border-base-border bg-surface-hover/50 px-2 py-1.5 text-center">
+					<div class="text-sm font-black text-violet-400">{daySessions.length}</div>
+					<div class="text-[8px] text-base-text-muted">sessions</div>
 				</div>
 			</div>
 			<div class="flex items-center justify-between text-[9px] text-base-text-muted">
@@ -1011,6 +1189,7 @@
 				{ key: 'length', label: 'By Length' },
 				{ key: 'assumptions', label: 'Rushed' },
 				{ key: 'heatmap', label: 'Hourly' },
+				{ key: 'sessions', label: 'Sessions' },
 			] as tab}
 				<button
 					onclick={() => { activeChart = tab.key as typeof activeChart; }}
@@ -1158,6 +1337,105 @@
 			<div>
 				<div class="mb-2 text-[9px] text-base-text-muted">Performance by hour</div>
 				<div bind:this={heatmapChartEl} class="h-52 w-full"></div>
+			</div>
+		{/if}
+
+		<!-- SESSIONS -->
+		{#if activeChart === 'sessions'}
+			<div class="space-y-3">
+				{#if daySessions.length === 0}
+					<div class="py-4 text-center text-xs text-base-text-muted">No sessions detected</div>
+				{:else}
+					<!-- Summary line -->
+					<div class="text-[10px] text-base-text-muted">
+						{daySessions.length} session{daySessions.length !== 1 ? 's' : ''} &middot;
+						best: <span class="font-bold text-green-400">{Math.max(...daySessions.map(s => s.accuracy))}%</span> &middot;
+						avg length: <span class="font-bold text-cyan-400">{Math.round(daySessions.reduce((s, sess) => s + sess.wordCount, 0) / daySessions.length)}</span> words
+					</div>
+
+					<!-- Session cards -->
+					<div class="space-y-1.5 max-h-64 overflow-y-auto">
+						{#each daySessions as sess}
+							<div class="rounded border border-base-border bg-surface-hover/50 px-2.5 py-2">
+								<div class="flex items-center justify-between">
+									<div class="text-[11px] font-bold text-base-text">
+										{sess.index}. {sess.startTime} - {sess.endTime}
+									</div>
+									<div class="text-[10px] font-mono text-base-text-muted">
+										CV {sess.presenceCV.toFixed(2)}
+									</div>
+								</div>
+								<div class="mt-1 flex items-center gap-3 text-[10px]">
+									<span class="text-cyan-400 font-bold">{sess.wordCount}w</span>
+									<span class="{sess.accuracy >= 60 ? 'text-green-400' : sess.accuracy >= 40 ? 'text-amber-400' : 'text-red-400'} font-bold">{sess.accuracy}%</span>
+									{#if sess.avgSpeed > 0}
+										<span class="text-base-text-muted">spd {sess.avgSpeed.toFixed(2)}</span>
+									{/if}
+									{#if sess.instantFails > 0}
+										<span class="text-orange-400">{sess.instantFails} rushed</span>
+									{/if}
+									<span class="{sess.fatigueDelta >= 0 ? 'text-green-400' : 'text-red-400'}">
+										{sess.fatigueDelta >= 0 ? '+' : ''}{sess.fatigueDelta}pp fatigue
+									</span>
+								</div>
+								<!-- Mini accuracy bar -->
+								<div class="mt-1.5 h-1.5 w-full rounded-full bg-surface-hover overflow-hidden">
+									<div
+										class="h-full rounded-full {sess.accuracy >= 60 ? 'bg-green-500' : sess.accuracy >= 40 ? 'bg-amber-500' : 'bg-red-500'}"
+										style="width: {sess.accuracy}%"
+									></div>
+								</div>
+							</div>
+						{/each}
+					</div>
+
+					<!-- Insights summary -->
+					{#if sessionInsights}
+						<div class="pt-1 border-t border-base-border">
+							<div class="text-[10px] font-bold text-base-text-muted mb-1.5">Insights</div>
+							<div class="grid grid-cols-2 gap-1.5">
+								{#if sessionInsights.optimalLength !== null}
+									<div class="rounded border border-base-border bg-surface-hover/50 px-2 py-1.5">
+										<div class="text-[10px] font-bold text-cyan-400">{sessionInsights.optimalLength} words</div>
+										<div class="text-[8px] text-base-text-muted">optimal length</div>
+									</div>
+								{/if}
+								{#if sessionInsights.bestHour}
+									<div class="rounded border border-base-border bg-surface-hover/50 px-2 py-1.5">
+										<div class="text-[10px] font-bold text-green-400">{sessionInsights.bestHour} ({sessionInsights.bestHourAcc}%)</div>
+										<div class="text-[8px] text-base-text-muted">best time</div>
+									</div>
+								{/if}
+								{#if sessionInsights.recoveryEffect !== null}
+									<div class="rounded border border-base-border bg-surface-hover/50 px-2 py-1.5">
+										<div class="text-[10px] font-bold {sessionInsights.recoveryEffect >= 0 ? 'text-green-400' : 'text-red-400'}">
+											{sessionInsights.recoveryEffect >= 0 ? '+' : ''}{sessionInsights.recoveryEffect}pp
+										</div>
+										<div class="text-[8px] text-base-text-muted">recovery effect</div>
+									</div>
+								{/if}
+								{#if sessionInsights.shortAvg !== null || sessionInsights.longAvg !== null}
+									<div class="rounded border border-base-border bg-surface-hover/50 px-2 py-1.5">
+										<div class="text-[10px] text-base-text">
+											{#if sessionInsights.shortAvg !== null}
+												<span class="font-bold text-amber-400">{sessionInsights.shortAvg}%</span>
+												<span class="text-base-text-muted">&lt;100w</span>
+											{/if}
+											{#if sessionInsights.shortAvg !== null && sessionInsights.longAvg !== null}
+												<span class="text-base-text-muted mx-0.5">vs</span>
+											{/if}
+											{#if sessionInsights.longAvg !== null}
+												<span class="font-bold text-violet-400">{sessionInsights.longAvg}%</span>
+												<span class="text-base-text-muted">&gt;200w</span>
+											{/if}
+										</div>
+										<div class="text-[8px] text-base-text-muted">session efficiency</div>
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				{/if}
 			</div>
 		{/if}
 	</div>
