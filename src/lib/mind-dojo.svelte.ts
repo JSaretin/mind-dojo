@@ -168,9 +168,9 @@ export class MindDojo {
 
     // ── Auto Speed ──
     autoSpeedZone: 'base' | 'flow' | 'challenge' = $state('base')
-    private autoSpeedResults: boolean[] = [] // rolling window of results
-    private autoSpeedWordsInZone = 0
-    private autoSpeedChallengeTarget = 5
+    private autoSpeedResults: boolean[] = $state([])
+    private autoSpeedWordsInZone = $state(0)
+    private autoSpeedChallengeTarget = $state(5)
 
     // Rolling window: only the last N results count
     private readonly AUTO_SPEED_WINDOW = 10
