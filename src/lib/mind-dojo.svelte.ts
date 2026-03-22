@@ -173,9 +173,11 @@ export class MindDojo {
     private autoSpeedChallengeTarget = $state(5)
 
     // Rolling window: only the last N results count
-    private readonly AUTO_SPEED_WINDOW = 10
+    private readonly AUTO_SPEED_WINDOW = 15
     private readonly AUTO_SPEED_GATE_THRESHOLD = 0.80
     private readonly AUTO_SPEED_DROP_THRESHOLD = 0.60
+    private readonly AUTO_SPEED_BUMP = 1.01     // +1% on Flow mastery
+    private readonly AUTO_SPEED_DROP = 0.99      // -1% on Flow failure
 
     /** Progress toward next zone gate (0-100) */
     get autoSpeedProgress(): number {
@@ -260,14 +262,14 @@ export class MindDojo {
                 // Drop back to Base if accuracy < 60%
                 if (enoughData && acc < this.AUTO_SPEED_DROP_THRESHOLD) {
                     // Too hard — lower base speed
-                    const newBase = parseFloat((this.settings.autoSpeedBase * 0.95).toFixed(4));
+                    const newBase = parseFloat((this.settings.autoSpeedBase * this.AUTO_SPEED_DROP).toFixed(4));
                     this.settings.autoSpeedBase = Math.max(newBase, this.settings.lockedMinSpeed || 1);
                     this.setAutoSpeedZone('base');
                 }
                 // Gate: advance to Challenge when accuracy >= 80% over enough words
                 else if (enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
                     // Flow mastered — raise base speed
-                    this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * 1.05).toFixed(4));
+                    this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * this.AUTO_SPEED_BUMP).toFixed(4));
                     this.setAutoSpeedZone('challenge');
                 }
                 break;
@@ -592,7 +594,7 @@ export class MindDojo {
     private advanceLevel() {
         if (this.settings.autoSpeed) {
             // In auto mode: ratchet the base speed up permanently
-            this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * 1.05).toFixed(4));
+            this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * this.AUTO_SPEED_BUMP).toFixed(4));
             if (this.settings.lockedMinSpeed > 0) {
                 this.settings.lockedMinSpeed = this.settings.autoSpeedBase;
             }
