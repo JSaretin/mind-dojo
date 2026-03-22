@@ -177,6 +177,27 @@ export class MindDojo {
     private readonly AUTO_SPEED_GATE_THRESHOLD = 0.80
     private readonly AUTO_SPEED_DROP_THRESHOLD = 0.60
 
+    /** Progress toward next zone gate (0-100) */
+    get autoSpeedProgress(): number {
+        if (!this.settings.autoSpeed) return 0;
+
+        // Challenge: progress = words done / target
+        if (this.autoSpeedZone === 'challenge') {
+            return Math.min(Math.round((this.autoSpeedWordsInZone / this.autoSpeedChallengeTarget) * 100), 100);
+        }
+
+        // Base/Flow: progress = how close accuracy is to the 80% gate
+        // Below 60% = 0%, at 60% = 0%, at 80% = 100%
+        if (!this.autoSpeedWindowFull) {
+            // Window not full yet — show fill progress
+            return Math.round((this.autoSpeedResults.length / this.AUTO_SPEED_WINDOW) * 50);
+        }
+        const acc = this.autoSpeedAccuracy;
+        const range = this.AUTO_SPEED_GATE_THRESHOLD - this.AUTO_SPEED_DROP_THRESHOLD; // 0.80 - 0.60 = 0.20
+        const normalized = (acc - this.AUTO_SPEED_DROP_THRESHOLD) / range; // 0 at 60%, 1 at 80%
+        return Math.max(0, Math.min(Math.round(normalized * 100), 100));
+    }
+
     get autoSpeedFlowSpeed() { return parseFloat((this.settings.autoSpeedBase * 1.1).toFixed(4)); }
     get autoSpeedChallengeSpeed() { return parseFloat((this.settings.autoSpeedBase * 1.25).toFixed(4)); }
 
@@ -363,6 +384,8 @@ export class MindDojo {
 
     // Level persistence — reset progress if speed was manually changed
     checkLevelReset() {
+        // Auto mode manages its own progress — skip manual level reset
+        if (this.settings.autoSpeed) return
         const currentSpeed = parseFloat(this.settings.speed.toFixed(4))
         if (this.savedLevelSpeed !== 0 && currentSpeed !== this.savedLevelSpeed) {
             this.dojoState.progress = 0
@@ -627,7 +650,9 @@ export class MindDojo {
 
     handleError() {
         this.recordAutoSpeedResult(false)
-        this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
+        if (!this.settings.autoSpeed) {
+            this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
+        }
         if (this.currentWord) {
             const flow = this.buildTypingFlow(false)
 
@@ -740,9 +765,11 @@ export class MindDojo {
                 }
             }
 
-            this.dojoState.progress = Math.min(this.dojoState.progress + 1, 100);
-            if (this.dojoState.progress >= 100) {
-                this.advanceLevel();
+            if (!this.settings.autoSpeed) {
+                this.dojoState.progress = Math.min(this.dojoState.progress + 1, 100);
+                if (this.dojoState.progress >= 100) {
+                    this.advanceLevel();
+                }
             }
             this.persistProgress()
 
