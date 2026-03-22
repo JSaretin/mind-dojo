@@ -35,16 +35,30 @@
 			<span class="font-mono text-xs font-bold" style="color: {barColor};">{progress}%</span>
 		</div>
 
-		<!-- WPM center -->
+		<!-- Center: zone label (auto) or WPM (manual) -->
 		<div class="flex items-center gap-1.5">
-			<span class="font-mono text-sm font-bold text-base-text">{wpm}</span>
-			<span class="text-[10px] text-base-text-muted">WPM</span>
+			{#if mindDojo.settings.autoSpeed}
+				<span class="rounded px-1.5 py-0.5 text-[10px] font-bold {
+					mindDojo.autoSpeedZone === 'challenge' ? 'bg-red-500/20 text-red-400' :
+					mindDojo.autoSpeedZone === 'flow' ? 'bg-green-500/20 text-green-400' :
+					'bg-blue-500/20 text-blue-400'
+				}">
+					{mindDojo.autoSpeedZone === 'challenge' ? 'PUSH' : mindDojo.autoSpeedZone === 'flow' ? 'FLOW' : 'BASE'}
+				</span>
+			{:else}
+				<span class="font-mono text-sm font-bold text-base-text">{wpm}</span>
+				<span class="text-[10px] text-base-text-muted">WPM</span>
+			{/if}
 		</div>
 
-		<!-- Speed multiplier -->
+		<!-- Right: auto label or speed multiplier -->
 		<div class="flex items-center gap-1.5">
-			<span class="text-[10px] text-base-text-muted">Speed</span>
-			<span class="font-mono text-xs text-base-text">{speed.toFixed(2)}x</span>
+			{#if mindDojo.settings.autoSpeed}
+				<span class="text-[10px] text-base-text-muted">Auto</span>
+			{:else}
+				<span class="text-[10px] text-base-text-muted">Speed</span>
+				<span class="font-mono text-xs text-base-text">{speed.toFixed(2)}x</span>
+			{/if}
 		</div>
 	</div>
 </div>

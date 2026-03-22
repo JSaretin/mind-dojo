@@ -110,5 +110,7 @@ export interface MindDojoSettings {
     restDuration: number;    // minutes, 0 = skip rest
     zenMode: boolean;        // hide all stats — just you and the letters
     lockedMinSpeed: number;  // commitment lock — cannot go below this speed
+    autoSpeed: boolean;      // automatic speed cycling (base/flow/challenge)
+    autoSpeedBase: number;   // base speed for auto mode (auto-calibrated)
     // focusKeys: FocusKeys
 }

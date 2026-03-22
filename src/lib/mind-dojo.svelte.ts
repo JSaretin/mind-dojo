@@ -59,6 +59,8 @@ const defaultSetting: MindDojoSettings = {
     restDuration: 0,
     zenMode: false,
     lockedMinSpeed: 0,
+    autoSpeed: false,
+    autoSpeedBase: 0,
 };
 
 
@@ -163,6 +165,83 @@ export class MindDojo {
     private sessionTimer: ReturnType<typeof setTimeout> | null = null
     private restInterval: ReturnType<typeof setInterval> | null = null
     sessionJournals: { text: string; timestamp: number }[] = $state([])
+
+    // ── Auto Speed ──
+    autoSpeedZone: 'base' | 'flow' | 'challenge' = $state('base')
+    private autoSpeedWordCount = 0
+    private autoSpeedCycleCorrect = 0
+    private autoSpeedCycleTotal = 0
+
+    // Cycle: base (warm-up) → flow → challenge → base (recover), random counts per zone
+    private readonly AUTO_SPEED_ZONES = [
+        { zone: 'base' as const, min: 5, max: 15 },
+        { zone: 'flow' as const, min: 15, max: 25 },
+        { zone: 'challenge' as const, min: 3, max: 8 },
+        { zone: 'base' as const, min: 3, max: 8 },
+    ]
+    private autoSpeedCycleIndex = 0
+    private autoSpeedWordsInZone = 0
+    private autoSpeedCurrentZoneTarget = 10
+
+    private rollZoneTarget() {
+        const phase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
+        this.autoSpeedCurrentZoneTarget = Math.floor(Math.random() * (phase.max - phase.min + 1)) + phase.min
+    }
+
+    get autoSpeedFlowSpeed() { return parseFloat((this.settings.autoSpeedBase * 1.1).toFixed(4)); }
+    get autoSpeedChallengeSpeed() { return parseFloat((this.settings.autoSpeedBase * 1.25).toFixed(4)); }
+
+    private getAutoSpeedForZone(zone: 'base' | 'flow' | 'challenge'): number {
+        switch (zone) {
+            case 'base': return this.settings.autoSpeedBase;
+            case 'flow': return this.autoSpeedFlowSpeed;
+            case 'challenge': return this.autoSpeedChallengeSpeed;
+        }
+    }
+
+    private advanceAutoSpeedZone() {
+        if (!this.settings.autoSpeed) return
+
+        this.autoSpeedWordsInZone++
+
+        if (this.autoSpeedWordsInZone >= this.autoSpeedCurrentZoneTarget) {
+            const currentPhase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
+
+            // End of zone — if leaving Flow, check accuracy for calibration
+            if (currentPhase.zone === 'flow' && this.autoSpeedCycleTotal > 0) {
+                const flowAcc = this.autoSpeedCycleCorrect / this.autoSpeedCycleTotal
+                if (flowAcc > 0.85) {
+                    // Too easy — raise base
+                    this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * 1.05).toFixed(4))
+                } else if (flowAcc < 0.60) {
+                    // Too hard — lower base (but never below locked min)
+                    const newBase = parseFloat((this.settings.autoSpeedBase * 0.95).toFixed(4))
+                    this.settings.autoSpeedBase = Math.max(newBase, this.settings.lockedMinSpeed || 1)
+                }
+                this.autoSpeedCycleCorrect = 0
+                this.autoSpeedCycleTotal = 0
+            }
+
+            // Move to next zone in cycle
+            this.autoSpeedCycleIndex = (this.autoSpeedCycleIndex + 1) % this.AUTO_SPEED_ZONES.length
+            this.autoSpeedWordsInZone = 0
+            this.rollZoneTarget()
+        }
+
+        // Set the speed for the new zone
+        const nextPhase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
+        this.autoSpeedZone = nextPhase.zone
+        this.settings.speed = this.getAutoSpeedForZone(nextPhase.zone)
+    }
+
+    private recordAutoSpeedResult(correct: boolean) {
+        if (!this.settings.autoSpeed) return
+        const currentPhase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
+        if (currentPhase.zone === 'flow') {
+            this.autoSpeedCycleTotal++
+            if (correct) this.autoSpeedCycleCorrect++
+        }
+    }
 
     // Level persistence — track the speed at which progress was earned
     private savedLevelSpeed: number = 0
@@ -460,6 +539,16 @@ export class MindDojo {
     }
 
     private advanceLevel() {
+        if (this.settings.autoSpeed) {
+            // In auto mode: ratchet the base speed up permanently
+            this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * 1.05).toFixed(4));
+            if (this.settings.lockedMinSpeed > 0) {
+                this.settings.lockedMinSpeed = this.settings.autoSpeedBase;
+            }
+            this.dojoState.progress = 0;
+            return;
+        }
+
         let nextSpeed = this.settings.speed;
 
         if (this.settings.typeRestartLevelOnErrorOnLevelCompletion) {
@@ -484,7 +573,7 @@ export class MindDojo {
 
     /** Activate commitment lock at current speed */
     lockSpeed() {
-        this.settings.lockedMinSpeed = this.settings.speed;
+        this.settings.lockedMinSpeed = this.settings.autoSpeed ? this.settings.autoSpeedBase : this.settings.speed;
     }
 
     /** Release commitment lock */
@@ -492,7 +581,30 @@ export class MindDojo {
         this.settings.lockedMinSpeed = 0;
     }
 
+    /** Enable auto speed mode — takes over speed control */
+    enableAutoSpeed() {
+        this.settings.autoSpeed = true;
+        if (!this.settings.autoSpeedBase || this.settings.autoSpeedBase <= 0) {
+            this.settings.autoSpeedBase = this.settings.speed || 2;
+        }
+        this.autoSpeedCycleIndex = 0;
+        this.autoSpeedWordsInZone = 0;
+        this.rollZoneTarget();
+        this.autoSpeedCycleCorrect = 0;
+        this.autoSpeedCycleTotal = 0;
+        this.autoSpeedZone = 'base';
+        this.settings.speed = this.settings.autoSpeedBase;
+    }
+
+    /** Disable auto speed — return to manual control */
+    disableAutoSpeed() {
+        this.settings.autoSpeed = false;
+        // Keep current speed as the manual speed
+        this.settings.speed = this.getAutoSpeedForZone(this.autoSpeedZone);
+    }
+
     handleError() {
+        this.recordAutoSpeedResult(false)
         this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
         if (this.currentWord) {
             const flow = this.buildTypingFlow(false)
@@ -563,6 +675,7 @@ export class MindDojo {
         }
 
         if (this.currentWord?.word === this.typedWord) {
+            this.recordAutoSpeedResult(true)
             if (this.currentWord) {
                 const flow = this.buildTypingFlow(true)
 
@@ -811,6 +924,7 @@ export class MindDojo {
     pickNextWord(): void {
         if (this.sessionExpired) return
         this.checkLevelReset()
+        this.advanceAutoSpeedZone()
         this.generateRandomSetting();
 
         let isRandom = this.settings.joinRandomLetters && (!this.settings.mixJoinRandomLetters || Math.random() < 0.8)

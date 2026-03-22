@@ -43,7 +43,80 @@
 <div class="space-y-5">
 	<!-- CORE TAB -->
 	{#if activeTab === 'core'}
-		<!-- Speed -->
+		<!-- Auto Speed -->
+		<div class="rounded-lg border {settings.autoSpeed ? 'border-green-500/50' : 'border-base-border'} bg-surface-hover/50 p-4">
+			<div class="flex items-center justify-between">
+				<div>
+					<span class="text-sm font-bold text-accent">Auto Speed</span>
+					<p class="mt-0.5 text-[10px] text-base-text-muted">
+						{#if settings.autoSpeed}
+							Cycling: Base ({settings.autoSpeedBase.toFixed(2)}x) → Flow ({(settings.autoSpeedBase * 1.1).toFixed(2)}x) → Challenge ({(settings.autoSpeedBase * 1.25).toFixed(2)}x)
+						{:else}
+							Automatically cycles through Base / Flow / Challenge zones. Calibrates to your performance.
+						{/if}
+					</p>
+				</div>
+				<label class="relative inline-flex cursor-pointer items-center">
+					<input
+						type="checkbox"
+						checked={settings.autoSpeed}
+						onchange={(e) => {
+							if ((e.target as HTMLInputElement).checked) {
+								mindDojo.enableAutoSpeed();
+							} else {
+								mindDojo.disableAutoSpeed();
+							}
+						}}
+						class="peer sr-only"
+					/>
+					<div class="peer h-5 w-9 rounded-full bg-surface-hover after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-base-text-muted after:transition-all peer-checked:bg-green-500 peer-checked:after:translate-x-full peer-checked:after:bg-black"></div>
+				</label>
+			</div>
+			{#if settings.autoSpeed}
+				<div class="mt-3 flex items-center gap-3">
+					<div class="flex-1">
+						<div class="mb-1 flex items-center justify-between text-[10px]">
+							<span class="text-base-text-muted">Base speed</span>
+							<span class="font-mono text-accent">{settings.autoSpeedBase.toFixed(2)}x</span>
+						</div>
+						<input
+							type="number"
+							min="0.5"
+							step="0.1"
+							bind:value={settings.autoSpeedBase}
+							class="w-full rounded-md border border-base-border bg-surface px-2 py-1.5 font-mono text-sm text-base-text focus:border-accent focus:outline-none"
+						/>
+					</div>
+					<div class="flex flex-col gap-1 text-[10px]">
+						<span class="text-green-400">Flow: {(settings.autoSpeedBase * 1.1).toFixed(2)}x</span>
+						<span class="text-red-400">Challenge: {(settings.autoSpeedBase * 1.25).toFixed(2)}x</span>
+					</div>
+				</div>
+				<div class="mt-2 flex gap-1">
+					{#each [
+						{ label: 'Base', weight: 10, color: 'bg-blue-500' },
+						{ label: 'Flow', weight: 20, color: 'bg-green-500' },
+						{ label: 'Push', weight: 5, color: 'bg-red-500' },
+						{ label: 'Rest', weight: 5, color: 'bg-blue-500' },
+					] as phase, i}
+						<div
+							class="h-1.5 rounded-full {phase.color} {i === 0 ? 'opacity-100' : 'opacity-40'}"
+							style="flex: {phase.weight};"
+							title={phase.label}
+						></div>
+					{/each}
+				</div>
+				<div class="mt-1 flex justify-between text-[8px] text-base-text-muted">
+					<span>Warm-up</span>
+					<span>Flow</span>
+					<span>Push</span>
+					<span>Rest</span>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Speed (manual) -->
+		{#if !settings.autoSpeed}
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
 			<div class="mb-3 flex items-center justify-between">
 				<span class="text-sm font-bold text-accent">Typing Speed</span>
@@ -69,6 +142,7 @@
 				class="w-full rounded-md border border-base-border bg-surface px-3 py-2 font-mono text-base-text focus:border-accent focus:outline-none"
 			/>
 		</div>
+		{/if}
 
 		<!-- Same Letter Delay -->
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
