@@ -1,5 +1,10 @@
 <script lang="ts">
+	import { isInstantFail } from '$lib/structure';
 	import type { SavedWord, TypingFlow } from '$lib/structure';
+	import SessionInsightsChart from './SessionInsightsChart.svelte';
+	import Chart from './Chart.svelte';
+	import ChartTypeToggle from './ChartTypeToggle.svelte';
+	import * as echarts from 'echarts';
 
 	let {
 		words
@@ -9,14 +14,8 @@
 
 	let showChart = $state(true);
 	let selectedDate: string | null = $state(null);
+	let breakdownTab: 'speed' | 'length' = $state('length');
 	let chartMode: 'speed' | 'accuracy' | 'volume' = $state('speed');
-
-	// Chart dimensions
-	const width = 400;
-	const height = 180;
-	const padding = { top: 20, right: 16, bottom: 40, left: 46 };
-	const chartW = width - padding.left - padding.right;
-	const chartH = height - padding.top - padding.bottom;
 
 	interface DayStats {
 		date: string;
@@ -60,6 +59,7 @@
 		for (const w of words) {
 			if (!w.typingFlows) continue;
 			for (const flow of w.typingFlows) {
+				if (isInstantFail(flow)) continue;
 				const d = new Date(flow.timestamp);
 				const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 				const dur = flow.totalDuration || flow.letterIntervals.reduce((a, b) => a + b, 0);
@@ -182,7 +182,6 @@
 		chartMode === 'accuracy' ? d.accuracy :
 		d.wordCount
 	));
-	let chartMax = $derived(chartValues.length > 0 ? Math.max(...chartValues, 1) : 1);
 	let chartColor = $derived(chartMode === 'speed' ? '#06b6d4' : chartMode === 'accuracy' ? '#22c55e' : '#a855f7');
 
 	// 7-day moving average
@@ -193,7 +192,7 @@
 		for (let i = 0; i < chartValues.length; i++) {
 			if (i < window - 1) { avgs.push(null); continue; }
 			let sum = 0;
-			for (let j = i - window + 1; j <= i; j++) sum += chartValues[j];
+			for (let j = i - window + 1; j <= i; sum += chartValues[j++]);
 			avgs.push(sum / window);
 		}
 		return avgs;
@@ -204,6 +203,68 @@
 	let totalCorrect = $derived(dailyStats.reduce((s, d) => s + d.correctCount, 0));
 	let totalPracticeTime = $derived(dailyStats.reduce((s, d) => s + d.totalPracticeMs, 0));
 	let overallAccuracy = $derived(totalWords > 0 ? Math.round((totalCorrect / totalWords) * 100) : 0);
+
+	let speedZoneAccuracy = $derived.by(() => {
+		const zones = new Map<number, { correct: number; total: number }>();
+		for (const w of words) {
+			if (!w.typingFlows) continue;
+			for (const flow of w.typingFlows) {
+				if (isInstantFail(flow) || !flow.speed) continue;
+				const spd = parseFloat(flow.speed.toFixed(2));
+				let z = zones.get(spd);
+				if (!z) { z = { correct: 0, total: 0 }; zones.set(spd, z); }
+				z.total++;
+				if (flow.correct) z.correct++;
+			}
+		}
+		return [...zones.entries()]
+			.sort((a, b) => a[0] - b[0])
+			.map(([speed, stats]) => ({
+				speed,
+				accuracy: Math.round((stats.correct / stats.total) * 100),
+				total: stats.total,
+				correct: stats.correct,
+			}));
+	});
+
+	let lifetimeLengthAccuracy = $derived.by(() => {
+		const buckets: Record<string, { correct: number; total: number }> = {};
+		for (const w of words) {
+			if (!w.typingFlows) continue;
+			const len = w.word.word.length;
+			const bucket = len <= 4 ? '3-4' : len <= 6 ? '5-6' : len <= 8 ? '7-8' : len <= 10 ? '9-10' : len <= 13 ? '11-13' : '14+';
+			for (const flow of w.typingFlows) {
+				if (isInstantFail(flow)) continue;
+				if (!buckets[bucket]) buckets[bucket] = { correct: 0, total: 0 };
+				buckets[bucket].total++;
+				if (flow.correct) buckets[bucket].correct++;
+			}
+		}
+		const order = ['3-4', '5-6', '7-8', '9-10', '11-13', '14+'];
+		return order.filter(k => buckets[k]).map(k => ({
+			label: k,
+			accuracy: Math.round((buckets[k].correct / buckets[k].total) * 100),
+			total: buckets[k].total,
+		}));
+	});
+
+	let overallPresence = $derived.by(() => {
+		const allIntervals: number[] = [];
+		for (const w of words) {
+			if (!w.typingFlows) continue;
+			for (const flow of w.typingFlows) {
+				if (isInstantFail(flow) || !flow.correct) continue;
+				// Skip first interval (reaction time)
+				const interKey = flow.letterIntervals.slice(1).filter(v => v > 0);
+				allIntervals.push(...interKey);
+			}
+		}
+		if (allIntervals.length < 10) return null;
+		const mean = allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length;
+		const stdDev = Math.sqrt(allIntervals.reduce((s, v) => s + (v - mean) ** 2, 0) / allIntervals.length);
+		const cv = mean > 0 ? stdDev / mean : 0;
+		return Math.max(0, Math.round((1 - Math.min(cv, 1.5) / 1.5) * 100));
+	});
 
 	function formatMs(ms: number): string {
 		return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
@@ -216,74 +277,222 @@
 		return `${hrs}h ${mins % 60}m`;
 	}
 
-	function formatTime(ts: number): string {
-		return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-	}
-
 	function formatChartValue(val: number): string {
 		if (chartMode === 'speed') return formatMs(val);
 		if (chartMode === 'accuracy') return `${Math.round(val)}%`;
 		return `${Math.round(val)}`;
 	}
 
-	function buildPath(values: number[], max: number): string {
-		if (values.length < 2) return '';
-		const stepX = chartW / (values.length - 1);
-		return values
-			.map((v, i) => {
-				const x = padding.left + i * stepX;
-				const y = padding.top + chartH - (v / max) * chartH;
-				return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-			})
-			.join(' ');
-	}
-
-	function buildAreaPath(values: number[], max: number): string {
-		if (values.length < 2) return '';
-		const stepX = chartW / (values.length - 1);
-		const lineParts = values.map((v, i) => {
-			const x = padding.left + i * stepX;
-			const y = padding.top + chartH - (v / max) * chartH;
-			return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-		});
-		const bottomRight = `L${padding.left + (values.length - 1) * stepX},${padding.top + chartH}`;
-		const bottomLeft = `L${padding.left},${padding.top + chartH}`;
-		return lineParts.join(' ') + bottomRight + bottomLeft + 'Z';
-	}
-
-	function buildMovingAvgPath(avgs: (number | null)[], max: number): string {
-		if (avgs.length < 2) return '';
-		const stepX = chartW / (avgs.length - 1);
-		let started = false;
-		return avgs
-			.map((v, i) => {
-				if (v === null) return '';
-				const x = padding.left + i * stepX;
-				const y = padding.top + chartH - (v / max) * chartH;
-				const cmd = started ? 'L' : 'M';
-				started = true;
-				return `${cmd}${x},${y}`;
-			})
-			.filter(Boolean)
-			.join(' ');
-	}
-
-	let mainPath = $derived(buildPath(chartValues, chartMax));
-	let areaPath = $derived(buildAreaPath(chartValues, chartMax));
-	let maPath = $derived(buildMovingAvgPath(movingAvg, chartMax));
-
-	let hoveredDay: DayStats | null = $state(null);
-	let hoveredPos: { x: number; y: number } | null = $state(null);
-
 	function selectDay(date: string) {
 		selectedDate = selectedDate === date ? null : date;
+	}
+
+	// Build ECharts option from current data
+	function buildChartOption(): echarts.EChartsOption {
+		const labels = dailyStats.map(d => d.label);
+		const values = chartValues;
+		const maData = movingAvg;
+		const todayIdx = dailyStats.findIndex(d => d.date === todayKey);
+		const selectedIdx = selectedDate ? dailyStats.findIndex(d => d.date === selectedDate) : -1;
+
+		// Mark points for low-accuracy days in speed mode
+		const lowAccuracyIndices: number[] = [];
+		if (chartMode === 'speed') {
+			dailyStats.forEach((d, i) => {
+				if (d.accuracy < 70) lowAccuracyIndices.push(i);
+			});
+		}
+
+		// Build symbol size and item style arrays for highlighting
+		const symbolSizes = dailyStats.map((d, i) => {
+			if (i === selectedIdx) return 12;
+			if (d.date === todayKey) return 9;
+			return 6;
+		});
+
+		const itemColors = dailyStats.map((d, i) => {
+			if (i === selectedIdx) return '#f59e0b';
+			return chartColor;
+		});
+
+		// Build mark points for low accuracy
+		const markPointData = lowAccuracyIndices.map(i => ({
+			coord: [i, values[i]],
+			symbol: 'circle',
+			symbolSize: selectedIdx === i ? 20 : 14,
+			itemStyle: {
+				color: 'transparent',
+				borderColor: '#ef4444',
+				borderWidth: 1,
+				borderType: 'dashed' as const,
+				opacity: 0.6,
+			},
+			label: { show: false },
+		}));
+
+		const mainSeries: any = {
+			name: chartMode === 'speed' ? 'Avg Speed' : chartMode === 'accuracy' ? 'Accuracy' : 'Words/Day',
+			type: 'line',
+			data: values.map((v, i) => ({
+				value: v,
+				symbol: 'circle',
+				symbolSize: symbolSizes[i],
+				itemStyle: {
+					color: itemColors[i],
+					borderColor: i === selectedIdx ? '#fbbf24' : '#1f2937',
+					borderWidth: i === selectedIdx ? 2 : 1,
+				},
+			})),
+			smooth: false,
+			lineStyle: {
+				color: chartColor,
+				width: 2,
+			},
+			areaStyle: {
+				color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+					{ offset: 0, color: chartColor + '20' },
+					{ offset: 1, color: chartColor + '05' },
+				]),
+			},
+			emphasis: {
+				disabled: true,
+			},
+			triggerLineEvent: true,
+		};
+
+		if (markPointData.length > 0) {
+			mainSeries.markPoint = {
+				data: markPointData,
+				animation: false,
+			};
+		}
+
+		const series: any[] = [mainSeries];
+
+		// Moving average line
+		if (maData.length > 0) {
+			series.push({
+				name: '7-day Avg',
+				type: 'line',
+				data: maData.map(v => v ?? '-') as any,
+				smooth: false,
+				lineStyle: {
+					color: '#ffffff',
+					width: 1.5,
+					type: 'dashed',
+					opacity: 0.5,
+				},
+				symbol: 'none',
+				emphasis: {
+					disabled: true,
+				},
+				connectNulls: false,
+			});
+		}
+
+		const option: echarts.EChartsOption = {
+			backgroundColor: 'transparent',
+			animation: true,
+			animationDuration: 300,
+			grid: {
+				left: 46,
+				right: 16,
+				top: 16,
+				bottom: dailyStats.length > 20 ? 40 : 30,
+				containLabel: false,
+			},
+			xAxis: {
+				type: 'category',
+				data: labels,
+				axisLine: { show: false },
+				axisTick: { show: false },
+				axisLabel: {
+					color: '#6b7280',
+					fontSize: 9,
+					rotate: dailyStats.length > 10 ? 30 : 0,
+					interval: dailyStats.length > 20 ? 'auto' : 0,
+				},
+				splitLine: { show: false },
+			},
+			yAxis: {
+				type: 'value',
+				axisLine: { show: false },
+				axisTick: { show: false },
+				axisLabel: {
+					color: '#6b7280',
+					fontSize: 9,
+					formatter: (val: number) => formatChartValue(val),
+				},
+				splitLine: {
+					lineStyle: {
+						color: '#374151',
+						width: 0.5,
+					},
+				},
+			},
+			tooltip: {
+				trigger: 'axis',
+				backgroundColor: '#1f2937',
+				borderColor: chartColor,
+				borderWidth: 0.8,
+				textStyle: {
+					color: '#d1d5db',
+					fontSize: 11,
+				},
+				formatter: (params: any) => {
+					const idx = params[0]?.dataIndex;
+					if (idx == null || !dailyStats[idx]) return '';
+					const day = dailyStats[idx];
+					const val = chartValues[idx];
+					return `<div style="font-weight:bold;color:${chartColor};margin-bottom:2px">${day.label} — ${formatChartValue(val)}</div>` +
+						`<div>${day.wordCount} words · ${day.accuracy}% acc</div>` +
+						`<div style="color:#9ca3af;font-size:10px">median ${formatMs(day.medianDuration)} · ${formatMs(day.avgLetterTime)}/letter</div>`;
+				},
+			},
+			series,
+		};
+
+		// Add dataZoom if many days
+		if (dailyStats.length > 20) {
+			option.dataZoom = [
+				{
+					type: 'slider',
+					show: true,
+					height: 14,
+					bottom: 2,
+					borderColor: 'transparent',
+					backgroundColor: '#1f293780',
+					fillerColor: chartColor + '30',
+					handleStyle: { color: chartColor },
+					textStyle: { color: '#6b7280', fontSize: 9 },
+					start: Math.max(0, 100 - (20 / dailyStats.length) * 100),
+					end: 100,
+				},
+				{
+					type: 'inside',
+					zoomOnMouseWheel: true,
+					moveOnMouseMove: true,
+				},
+			];
+		}
+
+		return option;
+	}
+
+	let chartOption = $derived(buildChartOption());
+
+	function onChartClick(params: any) {
+		const idx = params.dataIndex;
+		if (idx != null && dailyStats[idx]) {
+			selectDay(dailyStats[idx].date);
+		}
 	}
 </script>
 
 {#if dailyStats.length > 0}
 	<div class="space-y-3">
 		<!-- Summary cards -->
-		<div class="grid grid-cols-4 gap-2">
+		<div class="grid grid-cols-4 gap-2 {overallPresence !== null ? 'grid-cols-5' : ''}">
 			<div class="rounded-lg border border-base-border bg-surface-hover/50 p-2 text-center">
 				<div class="text-lg font-black text-orange-400">{streak.current}</div>
 				<div class="text-[9px] text-base-text-muted">day streak</div>
@@ -300,6 +509,12 @@
 				<div class="text-lg font-black text-purple-400">{formatPracticeTime(totalPracticeTime)}</div>
 				<div class="text-[9px] text-base-text-muted">practice</div>
 			</div>
+			{#if overallPresence !== null}
+				<div class="rounded-lg border border-base-border bg-surface-hover/50 p-2 text-center">
+					<div class="text-lg font-black {overallPresence >= 70 ? 'text-green-400' : overallPresence >= 40 ? 'text-amber-400' : 'text-red-400'}">{overallPresence}</div>
+					<div class="text-[9px] text-base-text-muted">presence</div>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Today highlight -->
@@ -314,6 +529,56 @@
 					</div>
 					{#if todayStats.fastestWord}
 						<span class="text-[10px] text-base-text-muted">fastest: <span class="text-green-400">{todayStats.fastestWord.word}</span> {formatMs(todayStats.fastestWord.duration)}</span>
+					{/if}
+				</div>
+			</div>
+		{/if}
+
+		<!-- Accuracy breakdown (tabbed: by length / by speed) -->
+		{#if lifetimeLengthAccuracy.length > 0 || speedZoneAccuracy.length > 1}
+			<div class="rounded-lg border border-base-border bg-surface-hover/50 p-3">
+				<div class="mb-2 flex items-center justify-between">
+					<h5 class="text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Accuracy Breakdown</h5>
+					<div class="flex gap-1">
+						<button
+							onclick={() => { breakdownTab = 'length'; }}
+							class="rounded px-2 py-0.5 text-[10px] font-medium {breakdownTab === 'length' ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
+						>
+							By Length
+						</button>
+						{#if speedZoneAccuracy.length > 1}
+							<button
+								onclick={() => { breakdownTab = 'speed'; }}
+								class="rounded px-2 py-0.5 text-[10px] font-medium {breakdownTab === 'speed' ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
+							>
+								By Speed
+							</button>
+						{/if}
+					</div>
+				</div>
+				<div class="space-y-1">
+					{#if breakdownTab === 'length'}
+						{#each lifetimeLengthAccuracy as bucket}
+							<div class="flex items-center gap-2 text-[10px]">
+								<span class="w-10 text-right font-mono text-base-text-muted">{bucket.label}</span>
+								<div class="flex-1 h-3 rounded bg-surface-hover overflow-hidden">
+									<div class="h-full rounded {bucket.accuracy >= 60 ? 'bg-green-500/40' : bucket.accuracy >= 40 ? 'bg-amber-500/40' : 'bg-red-500/40'}" style="width: {Math.max(bucket.accuracy, 2)}%"></div>
+								</div>
+								<span class="w-8 text-right font-bold {bucket.accuracy >= 60 ? 'text-green-400' : bucket.accuracy >= 40 ? 'text-amber-400' : 'text-red-400'}">{bucket.accuracy}%</span>
+								<span class="w-10 text-right text-base-text-muted">{bucket.total}w</span>
+							</div>
+						{/each}
+					{:else}
+						{#each speedZoneAccuracy as zone}
+							<div class="flex items-center gap-2 text-[10px]">
+								<span class="w-10 text-right font-mono text-base-text-muted">{zone.speed.toFixed(2)}x</span>
+								<div class="flex-1 h-3 rounded bg-surface-hover overflow-hidden">
+									<div class="h-full rounded {zone.accuracy >= 60 ? 'bg-green-500/40' : zone.accuracy >= 40 ? 'bg-amber-500/40' : 'bg-red-500/40'}" style="width: {Math.max(zone.accuracy, 2)}%"></div>
+								</div>
+								<span class="w-8 text-right font-bold {zone.accuracy >= 60 ? 'text-green-400' : zone.accuracy >= 40 ? 'text-amber-400' : 'text-red-400'}">{zone.accuracy}%</span>
+								<span class="w-10 text-right text-base-text-muted">{zone.total}w</span>
+							</div>
+						{/each}
 					{/if}
 				</div>
 			</div>
@@ -341,147 +606,11 @@
 			>
 				{showChart ? 'Hide' : 'Show'}
 			</button>
+			<ChartTypeToggle />
 		</div>
 
 		{#if showChart}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<svg
-				viewBox="0 0 {width} {height}"
-				class="w-full"
-				onmouseleave={() => { hoveredDay = null; hoveredPos = null; }}
-			>
-				<!-- Grid lines -->
-				{#each [0, 0.25, 0.5, 0.75, 1] as pct}
-					<line
-						x1={padding.left}
-						y1={padding.top + chartH * (1 - pct)}
-						x2={padding.left + chartW}
-						y2={padding.top + chartH * (1 - pct)}
-						stroke="var(--theme-border, #374151)"
-						stroke-width="0.5"
-					/>
-					<text
-						x={padding.left - 6}
-						y={padding.top + chartH * (1 - pct) + 4}
-						text-anchor="end"
-						fill="#6b7280"
-						font-size="9"
-					>
-						{formatChartValue(chartMax * pct)}
-					</text>
-				{/each}
-
-				<!-- Area fill -->
-				{#if areaPath}
-					<path d={areaPath} fill={chartColor} opacity="0.08" />
-				{/if}
-
-				<!-- Main line -->
-				{#if mainPath}
-					<path d={mainPath} fill="none" stroke={chartColor} stroke-width="2" stroke-linejoin="round" />
-				{/if}
-
-				<!-- Moving average -->
-				{#if maPath}
-					<path d={maPath} fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="4 3" opacity="0.5" />
-				{/if}
-
-				<!-- Data points -->
-				{#each dailyStats as day, i}
-					{@const stepX = dailyStats.length > 1 ? chartW / (dailyStats.length - 1) : 0}
-					{@const x = padding.left + i * stepX}
-					{@const val = chartValues[i]}
-					{@const y = padding.top + chartH - (val / chartMax) * chartH}
-					{@const isSelected = day.date === selectedDate}
-					{@const isToday = day.date === todayKey}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<g
-						onmouseenter={() => { hoveredDay = day; hoveredPos = { x, y }; }}
-						onmouseleave={() => { hoveredDay = null; hoveredPos = null; }}
-						onclick={() => selectDay(day.date)}
-						style="cursor: pointer;"
-					>
-						<circle
-							cx={x}
-							cy={y}
-							r={isSelected ? 7 : isToday ? 6 : 4}
-							fill={isSelected ? '#f59e0b' : isToday ? chartColor : chartColor}
-							stroke={isSelected ? '#fbbf24' : '#1f2937'}
-							stroke-width={isSelected ? 2 : 1}
-							opacity={isSelected || isToday ? 1 : 0.8}
-						/>
-						<!-- Accuracy ring for speed mode -->
-						{#if chartMode === 'speed' && day.accuracy < 70}
-							<circle
-								cx={x}
-								cy={y}
-								r={isSelected ? 9 : 6}
-								fill="none"
-								stroke="#ef4444"
-								stroke-width="1"
-								stroke-dasharray="2 2"
-								opacity="0.6"
-							/>
-						{/if}
-						{#if dailyStats.length <= 14}
-							<text
-								x={x}
-								y={padding.top + chartH + 16}
-								text-anchor="middle"
-								fill={isSelected ? '#fbbf24' : '#6b7280'}
-								font-size="8"
-								font-weight={isSelected ? 'bold' : '400'}
-								transform="rotate(-30, {x}, {padding.top + chartH + 16})"
-							>
-								{day.label}
-							</text>
-						{/if}
-					</g>
-				{/each}
-
-				<!-- Hover tooltip -->
-				{#if hoveredDay && hoveredPos}
-					{@const val = chartMode === 'speed' ? hoveredDay.avgDuration : chartMode === 'accuracy' ? hoveredDay.accuracy : hoveredDay.wordCount}
-					<rect
-						x={Math.min(Math.max(hoveredPos.x - 60, padding.left), width - 124)}
-						y={Math.max(hoveredPos.y - 52, 2)}
-						width="120"
-						height="44"
-						rx="5"
-						fill="var(--theme-surface, #1f2937)"
-						stroke={chartColor}
-						stroke-width="0.8"
-					/>
-					<text
-						x={Math.min(Math.max(hoveredPos.x, padding.left + 60), width - 64)}
-						y={Math.max(hoveredPos.y - 36, 16)}
-						text-anchor="middle"
-						fill={chartColor}
-						font-size="10"
-						font-weight="bold"
-					>
-						{hoveredDay.label} — {formatChartValue(val)}
-					</text>
-					<text
-						x={Math.min(Math.max(hoveredPos.x, padding.left + 60), width - 64)}
-						y={Math.max(hoveredPos.y - 24, 28)}
-						text-anchor="middle"
-						fill="#d1d5db"
-						font-size="9"
-					>
-						{hoveredDay.wordCount} words · {hoveredDay.accuracy}% acc
-					</text>
-					<text
-						x={Math.min(Math.max(hoveredPos.x, padding.left + 60), width - 64)}
-						y={Math.max(hoveredPos.y - 13, 39)}
-						text-anchor="middle"
-						fill="#9ca3af"
-						font-size="8"
-					>
-						median {formatMs(hoveredDay.medianDuration)} · {formatMs(hoveredDay.avgLetterTime)}/letter
-					</text>
-				{/if}
-			</svg>
+			<Chart option={chartOption} height="200px" onclick={onChartClick} />
 
 			<!-- Legend -->
 			<div class="flex flex-wrap items-center gap-3 text-[9px] text-base-text-muted">
@@ -538,80 +667,17 @@
 			<div class="rounded-lg border border-accent/30 bg-surface-hover/50 p-3">
 				<div class="mb-3 flex items-center justify-between">
 					<h5 class="text-sm font-bold text-accent">{selectedDayStats.label}</h5>
-					<div class="flex items-center gap-3 text-xs">
-						<span class="text-base-text">{selectedDayStats.wordCount} words</span>
-						<span class="text-green-400">{selectedDayStats.correctCount} correct</span>
-						<span class="text-red-400">{selectedDayStats.errorCount} errors</span>
-						<button
-							onclick={() => (selectedDate = null)}
-							class="ml-1 text-base-text-muted hover:text-accent"
-						>
-							<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-							</svg>
-						</button>
-					</div>
+					<button
+						onclick={() => (selectedDate = null)}
+						class="text-base-text-muted hover:text-accent"
+					>
+						<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
 				</div>
 
-				<!-- Day stats -->
-				<div class="mb-3 grid grid-cols-4 gap-2 text-center text-[10px]">
-					<div>
-						<div class="text-sm font-bold text-cyan-400">{formatMs(selectedDayStats.avgDuration)}</div>
-						<div class="text-base-text-muted">avg</div>
-					</div>
-					<div>
-						<div class="text-sm font-bold text-blue-400">{formatMs(selectedDayStats.medianDuration)}</div>
-						<div class="text-base-text-muted">median</div>
-					</div>
-					<div>
-						<div class="text-sm font-bold text-purple-400">{formatMs(selectedDayStats.avgLetterTime)}</div>
-						<div class="text-base-text-muted">per letter</div>
-					</div>
-					<div>
-						<div class="text-sm font-bold {selectedDayStats.accuracy >= 70 ? 'text-green-400' : 'text-amber-400'}">{selectedDayStats.accuracy}%</div>
-						<div class="text-base-text-muted">accuracy</div>
-					</div>
-				</div>
-
-				<!-- Fastest / slowest -->
-				{#if selectedDayStats.fastestWord || selectedDayStats.slowestWord}
-					<div class="mb-3 flex gap-3 text-[10px]">
-						{#if selectedDayStats.fastestWord}
-							<div class="flex-1 rounded border border-green-500/20 bg-green-500/5 px-2 py-1.5">
-								<span class="text-base-text-muted">Fastest:</span>
-								<span class="ml-1 font-bold text-green-400">{selectedDayStats.fastestWord.word}</span>
-								<span class="ml-1 text-base-text-muted">{formatMs(selectedDayStats.fastestWord.duration)}</span>
-							</div>
-						{/if}
-						{#if selectedDayStats.slowestWord}
-							<div class="flex-1 rounded border border-red-500/20 bg-red-500/5 px-2 py-1.5">
-								<span class="text-base-text-muted">Slowest:</span>
-								<span class="ml-1 font-bold text-red-400">{selectedDayStats.slowestWord.word}</span>
-								<span class="ml-1 text-base-text-muted">{formatMs(selectedDayStats.slowestWord.duration)}</span>
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				<!-- Individual word list for this day -->
-				<div class="max-h-60 space-y-0.5 overflow-y-auto">
-					{#each selectedDayFlows as { word, flow }, i}
-						{@const dur = flow.totalDuration || flow.letterIntervals.reduce((a, b) => a + b, 0)}
-						<div class="flex items-center justify-between rounded px-2 py-1 text-xs hover:bg-surface-hover/50">
-							<div class="flex items-center gap-2">
-								<span class="w-4 text-center font-mono text-[10px] text-base-text-muted">{i + 1}</span>
-								<span class="font-medium text-base-text">{word}</span>
-							</div>
-							<div class="flex items-center gap-2">
-								<span class="font-mono text-base-text">{formatMs(dur)}</span>
-								<span class="w-6 text-center font-medium {flow.correct ? 'text-green-400' : 'text-red-400'}">
-									{flow.correct ? 'ok' : 'err'}
-								</span>
-								<span class="text-[10px] text-base-text-muted">{formatTime(flow.timestamp)}</span>
-							</div>
-						</div>
-					{/each}
-				</div>
+				<SessionInsightsChart {words} selectedDate={selectedDate} />
 			</div>
 		{/if}
 	</div>

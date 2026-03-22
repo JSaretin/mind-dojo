@@ -1,7 +1,10 @@
 <script lang="ts">
 	import type { MindDojo } from '$lib/mind-dojo.svelte';
 	import type { SavedWord } from '$lib/structure';
+	import { isInstantFail } from '$lib/structure';
+	import ChartTypeToggle from './ChartTypeToggle.svelte';
 	import DailySpeedChart from './DailySpeedChart.svelte';
+	import SessionInsightsChart from './SessionInsightsChart.svelte';
 	import TypingFlowChart from './TypingFlowChart.svelte';
 
 	let {
@@ -11,14 +14,30 @@
 	}: { mindDojo: MindDojo; showWordBank: boolean; words: SavedWord[] } = $props();
 
 	let searchQuery = $state('');
-	let activeFilter: 'all' | 'dictionary' | 'practice' | 'starred' = $state('all');
+	let activeFilter: 'all' | 'dictionary' | 'practice' | 'starred' | 'problem' | 'mastered' = $state('all');
 	let sortMode: 'as-typed' | 'alpha-asc' | 'alpha-desc' | 'error-rate' = $state('as-typed');
 	let selectedWord: SavedWord | null = $state(null);
 	let collapsedRightWords: Set<string> = $state(new Set());
+	let rightTab: 'overview' | 'words' | 'insights' = $state('overview');
+
+	// Progressive loading
+	const PAGE_SIZE = 50;
+	let leftVisible = $state(PAGE_SIZE);
+	let rightVisible = $state(PAGE_SIZE);
 
 	function errorRate(w: SavedWord): number {
 		const total = w.stats.correctlyTyped + w.stats.wronglyTyped;
 		return total > 0 ? w.stats.wronglyTyped / total : 0;
+	}
+
+	/** Error rate excluding instant-fail flows (timeout before typing) */
+	function realErrorRate(w: SavedWord): number {
+		const flows = w.typingFlows || [];
+		const instantFails = flows.filter(f => !f.correct && isInstantFail(f)).length;
+		const totalAttempts = w.stats.correctlyTyped + w.stats.wronglyTyped;
+		const realErrors = Math.max(w.stats.wronglyTyped - instantFails, 0);
+		const realTotal = totalAttempts - instantFails;
+		return realTotal > 0 ? realErrors / realTotal : 0;
 	}
 
 	function getFilteredWords() {
@@ -33,6 +52,18 @@
 				break;
 			case 'starred':
 				result = result.filter((w) => w.stats.starred);
+				break;
+			case 'problem':
+				result = result.filter((w) => {
+					const attempts = w.stats.correctlyTyped + w.stats.wronglyTyped;
+					return attempts >= 3 && realErrorRate(w) > 0.5;
+				});
+				break;
+			case 'mastered':
+				result = result.filter((w) => {
+					const attempts = w.stats.correctlyTyped + w.stats.wronglyTyped;
+					return attempts >= 3 && realErrorRate(w) === 0;
+				});
 				break;
 		}
 
@@ -65,10 +96,10 @@
 	}
 
 	let filteredWords: SavedWord[] = $state([]);
-	$effect(() => { filteredWords = getFilteredWords(); });
+	$effect(() => { filteredWords = getFilteredWords(); leftVisible = PAGE_SIZE; });
 
-	// Recent words — last 30 by lastSeen (words already arrive sorted by lastSeen from DB)
-	let recentWords = $derived(words.slice(0, 30));
+	// Recent words — all words by lastSeen (words already arrive sorted by lastSeen from DB)
+	let recentWords = $derived(words);
 
 	function selectWord(w: SavedWord) {
 		selectedWord = selectedWord?.word.word === w.word.word ? null : w;
@@ -114,6 +145,7 @@
 		stats: true,
 		settings: true,
 		dojoProgress: true,
+		journalEntries: true,
 		onlyStarred: false,
 		onlyFiltered: false,
 		dateFilter: 'all' as 'all' | 'today' | 'custom',
@@ -130,6 +162,7 @@
 
 			if (exportOptions.settings) data.settings = fullData.settings;
 			if (exportOptions.dojoProgress) data.dojoProgress = fullData.dojoProgress;
+			if (exportOptions.journalEntries) data.journal = fullData.journal;
 
 			if (exportOptions.words) {
 				let wordsToExport = fullData.words;
@@ -215,6 +248,18 @@
 		};
 		input.click();
 	}
+
+	// IntersectionObserver action for infinite scroll sentinels
+	function loadMore(node: HTMLElement, onIntersect: () => void) {
+		const observer = new IntersectionObserver(
+			(entries) => { if (entries[0].isIntersecting) onIntersect(); },
+			{ rootMargin: '200px' }
+		);
+		observer.observe(node);
+		return {
+			destroy() { observer.disconnect(); }
+		};
+	}
 </script>
 
 <div class="fixed inset-0 z-50 flex bg-base">
@@ -236,41 +281,42 @@
 				class="w-full rounded border border-base-border bg-surface-hover px-2.5 py-1.5 text-sm text-base-text placeholder:text-base-text-muted focus:border-accent focus:outline-none"
 			/>
 
-			<div class="flex items-center justify-between">
-				<div class="flex gap-1">
-					{#each [
-						{ key: 'all', label: 'All' },
-						{ key: 'dictionary', label: 'Words' },
-						{ key: 'practice', label: 'Drills' },
-						{ key: 'starred', label: 'Starred' },
-					] as btn}
-						<button
-							onclick={() => (activeFilter = btn.key as typeof activeFilter)}
-							class="rounded px-2 py-0.5 text-[10px] font-medium {activeFilter === btn.key
-								? 'bg-accent-muted text-accent'
-								: 'text-base-text-muted hover:text-base-text'}"
-						>
-							{btn.label}
-						</button>
-					{/each}
-				</div>
-				<div class="flex gap-1">
-					{#each [
-						{ key: 'as-typed', label: 'Recent' },
-						{ key: 'error-rate', label: 'Errors' },
-						{ key: 'alpha-asc', label: 'A-Z' },
-						{ key: 'alpha-desc', label: 'Z-A' },
-					] as btn}
-						<button
-							onclick={() => (sortMode = btn.key as typeof sortMode)}
-							class="rounded px-1.5 py-0.5 text-[10px] {sortMode === btn.key
-								? 'text-accent'
-								: 'text-base-text-muted hover:text-base-text-muted'}"
-						>
-							{btn.label}
-						</button>
-					{/each}
-				</div>
+			<div class="flex flex-wrap gap-1">
+				{#each [
+					{ key: 'all', label: 'All', active: 'bg-accent-muted/80 text-accent ring-1 ring-accent/30', inactive: 'bg-surface-hover/50 text-base-text-muted hover:bg-surface-hover' },
+					{ key: 'dictionary', label: 'Words', active: 'bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30', inactive: 'bg-surface-hover/50 text-base-text-muted hover:bg-blue-500/10 hover:text-blue-400' },
+					{ key: 'practice', label: 'Drills', active: 'bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/30', inactive: 'bg-surface-hover/50 text-base-text-muted hover:bg-purple-500/10 hover:text-purple-400' },
+					{ key: 'starred', label: '★ Starred', active: 'bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30', inactive: 'bg-surface-hover/50 text-base-text-muted hover:bg-yellow-500/10 hover:text-yellow-400' },
+					{ key: 'problem', label: 'Problem', active: 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30', inactive: 'bg-surface-hover/50 text-base-text-muted hover:bg-red-500/10 hover:text-red-400' },
+					{ key: 'mastered', label: 'Mastered', active: 'bg-green-500/15 text-green-400 ring-1 ring-green-500/30', inactive: 'bg-surface-hover/50 text-base-text-muted hover:bg-green-500/10 hover:text-green-400' },
+				] as btn}
+					<button
+						onclick={() => (activeFilter = btn.key as typeof activeFilter)}
+						class="rounded-full px-2.5 py-0.5 text-[10px] font-medium transition-all {activeFilter === btn.key
+							? btn.active
+							: btn.inactive}"
+					>
+						{btn.label}
+					</button>
+				{/each}
+			</div>
+			<div class="flex items-center gap-0.5">
+				<span class="mr-1 text-[9px] text-base-text-muted">Sort:</span>
+				{#each [
+					{ key: 'as-typed', label: 'Recent' },
+					{ key: 'error-rate', label: 'Errors' },
+					{ key: 'alpha-asc', label: 'A-Z' },
+					{ key: 'alpha-desc', label: 'Z-A' },
+				] as btn}
+					<button
+						onclick={() => (sortMode = btn.key as typeof sortMode)}
+						class="px-1.5 py-0.5 text-[10px] transition-colors {sortMode === btn.key
+							? 'text-accent border-b border-accent'
+							: 'text-base-text-muted hover:text-base-text'}"
+					>
+						{btn.label}
+					</button>
+				{/each}
 			</div>
 		</div>
 
@@ -280,13 +326,18 @@
 					<p class="text-sm text-base-text-muted">{words.length === 0 ? 'No words yet' : 'No matches'}</p>
 				</div>
 			{:else}
-				{#each filteredWords as word (word.word.word)}
+				{#each filteredWords.slice(0, leftVisible) as word (word.word.word)}
 					{@const rate = errorRate(word)}
+					{@const attempts = word.stats.correctlyTyped + word.stats.wronglyTyped}
+					{@const accuracy = attempts > 0 ? (word.stats.correctlyTyped / attempts) * 100 : 0}
 					{@const isSelected = selectedWord?.word.word === word.word.word}
+					{@const dotColor = attempts < 2 ? '' : rate === 0 ? 'bg-green-400' : rate > 0.5 ? 'bg-red-400' : 'bg-amber-400'}
 					<button
 						onclick={() => selectWord(word)}
-						class="flex w-full items-center gap-2 border-b border-base-border/50 px-3 py-2 text-left transition-colors {isSelected ? 'bg-accent-muted' : 'hover:bg-surface-hover/50'}"
+						class="flex w-full items-center gap-1.5 border-b border-base-border/50 pl-1 pr-3 py-2 text-left transition-colors {isSelected ? 'bg-accent-muted' : 'hover:bg-surface-hover/50'}"
 					>
+						<!-- Status dot -->
+						<div class="flex-shrink-0 w-1 self-stretch rounded-full {dotColor}"></div>
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-1.5">
 								<span class="truncate text-sm font-bold text-base-text">{word.word.word}</span>
@@ -296,19 +347,24 @@
 							</div>
 							<div class="text-[10px] text-base-text-muted truncate">{word.word.meanings?.[0]?.[1]?.slice(0, 30) || ''}</div>
 						</div>
-						<div class="flex flex-shrink-0 items-center gap-2 text-[10px]">
-							<span class="font-mono {rate >= 0.4 ? 'font-bold text-red-400' : 'text-base-text-muted'}">{(rate * 100).toFixed(0)}%</span>
-							<span class="text-green-500">{word.stats.correctlyTyped}</span>
-							<span class="text-red-500">{word.stats.wronglyTyped}</span>
+						<div class="flex flex-shrink-0 items-center gap-1.5 text-[10px]">
+							<!-- Mini accuracy bar -->
+							<div class="w-10 h-1.5 rounded-full bg-red-500/30 overflow-hidden" title="{accuracy.toFixed(0)}% accuracy">
+								<div class="h-full rounded-full {accuracy === 100 ? 'bg-green-400' : accuracy >= 50 ? 'bg-amber-400' : 'bg-red-400'}" style="width: {accuracy}%"></div>
+							</div>
+							<span class="font-mono text-base-text-muted w-4 text-right">{attempts}</span>
 						</div>
 					</button>
 				{/each}
+				{#if leftVisible < filteredWords.length}
+					<div use:loadMore={() => { leftVisible += PAGE_SIZE; }} class="py-2 text-center text-[10px] text-base-text-muted">Loading more...</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
 
 	<!-- CENTER: word detail -->
-	<div class="flex flex-1 flex-col border-r border-base-border overflow-y-auto">
+	<div class="flex max-w-[850px] flex-1 flex-col border-r border-base-border overflow-y-auto">
 		{#if selectedWord}
 			{@const sw = selectedWord}
 			{@const rate = errorRate(sw)}
@@ -414,49 +470,93 @@
 		{/if}
 	</div>
 
-	<!-- RIGHT: recent words + chart -->
-	<div class="flex w-96 flex-shrink-0 flex-col bg-surface">
-		<div class="flex-1 overflow-y-auto">
-			<!-- Daily speed chart -->
-			{#if words.length > 0}
-				<div class="border-b border-base-border px-3 py-3">
-					<DailySpeedChart {words} />
-				</div>
-			{/if}
-
-			<div class="border-b border-base-border px-3 py-2">
-				<div class="flex items-center justify-between">
-					<h3 class="text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Recent Words</h3>
-					<span class="text-[9px] text-base-text-muted">{recentWords.length} words</span>
-				</div>
-			</div>
-
-			{#each recentWords as word, idx (word.word.word)}
-				{@const isExpanded = !collapsedRightWords.has(word.word.word)}
-				<div class="border-b border-base-border {idx % 2 === 0 ? 'bg-base' : 'bg-surface'}">
+	<!-- RIGHT: tabbed sidebar -->
+	<div class="flex flex-1 flex-col bg-surface">
+		<!-- Tabs + chart type toggle -->
+		<div class="flex items-center border-b border-base-border">
+			<div class="flex flex-1">
+				{#each [
+					{ key: 'overview', label: 'Daily' },
+					{ key: 'words', label: 'Words' },
+					{ key: 'insights', label: 'Insights' },
+				] as tab}
 					<button
-						onclick={() => toggleRightCollapse(word.word.word)}
-						class="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-surface-hover/50"
+						onclick={() => { rightTab = tab.key as typeof rightTab; }}
+						class="flex-1 px-2 py-2 text-[11px] font-medium transition-colors {rightTab === tab.key
+							? 'border-b-2 border-accent text-accent'
+							: 'text-base-text-muted hover:text-base-text'}"
 					>
-						<div class="min-w-0">
-							<span class="text-sm font-bold text-accent">{word.word.word}</span>
-							<span class="ml-1.5 text-[9px] text-base-text-muted">{timeAgo(word.stats.lastSeen)}</span>
-						</div>
-						<div class="flex items-center gap-2 text-[10px]">
-							<span class="text-green-500">{word.stats.correctlyTyped}</span>
-							<span class="text-base-text-muted">/</span>
-							<span class="text-red-500">{word.stats.wronglyTyped}</span>
-							<span class="text-base-text-muted">{isExpanded ? '▾' : '▸'}</span>
-						</div>
+						{tab.label}
 					</button>
+				{/each}
+			</div>
+			<div class="px-2">
+				<ChartTypeToggle />
+			</div>
+		</div>
 
-					{#if isExpanded && word.typingFlows?.length > 0}
-						<div class="px-3 pb-2">
-							<TypingFlowChart flows={word.typingFlows} word={word.word.word} defaultView="latest" />
-						</div>
+		<div class="flex-1 overflow-y-auto">
+			<!-- OVERVIEW TAB -->
+			{#if rightTab === 'overview'}
+				{#if words.length > 0}
+					<div class="px-3 py-3">
+						<DailySpeedChart {words} />
+					</div>
+				{:else}
+					<div class="flex flex-col items-center justify-center py-12 text-center">
+						<p class="text-sm text-base-text-muted">No typing data yet</p>
+					</div>
+				{/if}
+
+			<!-- WORD FLOW TAB -->
+			{:else if rightTab === 'words'}
+				<div class="border-b border-base-border px-3 py-2">
+					<div class="flex items-center justify-between">
+						<h3 class="text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Recent Words</h3>
+						<span class="text-[9px] text-base-text-muted">{recentWords.length} words</span>
+					</div>
+				</div>
+
+				{#each recentWords.slice(0, rightVisible) as word, idx (word.word.word)}
+					{@const isExpanded = !collapsedRightWords.has(word.word.word)}
+					<div class="border-b border-base-border {idx % 2 === 0 ? 'bg-base' : 'bg-surface'}">
+						<button
+							onclick={() => toggleRightCollapse(word.word.word)}
+							class="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-surface-hover/50"
+						>
+							<div class="min-w-0">
+								<span class="text-sm font-bold text-accent">{word.word.word}</span>
+								<span class="ml-1.5 text-[9px] text-base-text-muted">{timeAgo(word.stats.lastSeen)}</span>
+							</div>
+							<div class="flex items-center gap-2 text-[10px]">
+								<span class="text-green-500">{word.stats.correctlyTyped}</span>
+								<span class="text-base-text-muted">/</span>
+								<span class="text-red-500">{word.stats.wronglyTyped}</span>
+								<span class="text-base-text-muted">{isExpanded ? '▾' : '▸'}</span>
+							</div>
+						</button>
+
+						{#if isExpanded && word.typingFlows?.length > 0}
+							<div class="px-3 pb-2">
+								<TypingFlowChart flows={word.typingFlows} word={word.word.word} defaultView="latest" />
+							</div>
+						{/if}
+					</div>
+				{/each}
+				{#if rightVisible < recentWords.length}
+					<div use:loadMore={() => { rightVisible += PAGE_SIZE; }} class="py-2 text-center text-[10px] text-base-text-muted">Loading more...</div>
+				{/if}
+
+			<!-- DAY INSIGHTS TAB -->
+			{:else if rightTab === 'insights'}
+				<div class="px-3 py-3">
+					{#if words.length > 0}
+						<SessionInsightsChart {words} />
+					{:else}
+						<p class="py-8 text-center text-xs text-base-text-muted">No typing data yet</p>
 					{/if}
 				</div>
-			{/each}
+			{/if}
 		</div>
 
 		<div class="border-t border-base-border px-3 py-2">
@@ -509,7 +609,8 @@
 						{ key: 'words', label: 'Words & meanings' },
 						{ key: 'stats', label: 'Typing stats (correct, errors, seen)' },
 						{ key: 'typingFlows', label: 'Typing flows (per-letter timing data)' },
-						{ key: 'journals', label: 'Journal entries & tags' },
+						{ key: 'journals', label: 'Word notes & tags' },
+						{ key: 'journalEntries', label: 'Journal entries' },
 						{ key: 'settings', label: 'Settings' },
 						{ key: 'dojoProgress', label: 'Progress (XP, belt, level)' },
 					] as opt}

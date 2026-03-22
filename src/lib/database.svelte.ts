@@ -206,6 +206,7 @@ export class SavedWordDB {
         dojoProgress: Record<string, unknown>;
         settings: Record<string, unknown>;
         words: SavedWord[];
+        journal: unknown[];
     }> {
         const words = await this.getAllWords('createdAt');
         return {
@@ -213,6 +214,7 @@ export class SavedWordDB {
             version: DB_VERSION,
             dojoProgress: JSON.parse(localStorage.getItem('dojoProgress') || '{}'),
             settings: JSON.parse(localStorage.getItem('settings') || '{}'),
+            journal: JSON.parse(localStorage.getItem('mindDojoJournal') || '[]'),
             words,
         };
     }
@@ -222,6 +224,7 @@ export class SavedWordDB {
         dojoProgress?: Record<string, unknown>;
         settings?: Record<string, unknown>;
         words?: SavedWord[];
+        journal?: unknown[];
     }): Promise<{ imported: number; skipped: number }> {
         let imported = 0;
         let skipped = 0;
@@ -231,6 +234,20 @@ export class SavedWordDB {
         }
         if (data.settings) {
             localStorage.setItem('settings', JSON.stringify(data.settings));
+        }
+        if (data.journal && Array.isArray(data.journal)) {
+            // Merge journal entries by id, avoiding duplicates
+            const existing: { id: string }[] = JSON.parse(localStorage.getItem('mindDojoJournal') || '[]');
+            const existingIds = new Set(existing.map(e => e.id));
+            const merged = [...existing];
+            for (const entry of data.journal as { id: string }[]) {
+                if (entry.id && !existingIds.has(entry.id)) {
+                    merged.push(entry);
+                }
+            }
+            // Sort by timestamp descending (newest first)
+            merged.sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+            localStorage.setItem('mindDojoJournal', JSON.stringify(merged));
         }
 
         if (data.words) {

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { TypingFlow } from '$lib/structure';
+	import Chart from './Chart.svelte';
+	import { chartPrefs } from '$lib/chartPrefs.svelte';
 
 	let {
 		flows,
@@ -121,14 +123,7 @@
 		});
 	}
 
-	function buildFlowPath(points: { x: number; y: number; val: number | null }[]): string {
-		const typed = points.filter(p => p.val !== null);
-		if (typed.length < 2) return '';
-		return typed.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-	}
-
 	let activePoints = $derived(activeFlow ? buildFlowPoints(activeFlow) : []);
-	let activePath = $derived(buildFlowPath(activePoints));
 	let activeInterKey = $derived(activeFlow ? getTypingIntervals(activeFlow).filter(v => v > 0) : []);
 	let activeMax = $derived(activeInterKey.length > 0 ? Math.max(...activeInterKey, 1) : 1);
 	let activeAvg = $derived(activeInterKey.length > 0
@@ -183,20 +178,6 @@
 		return max;
 	});
 
-	function buildOverlayPath(intervals: number[], sharedMax: number, flow?: TypingFlow): string {
-		if (intervals.length < 1) return '';
-		const budget = flow ? getMsPerLetter(flow) : 500;
-		const stepX = word.length > 1 ? chartW / (word.length - 1) : 0;
-		return intervals
-			.map((val, i) => {
-				const dv = chartUnit === 'pct' ? toPct(val, budget) : val;
-				const x = padding.left + (i + 1) * stepX;
-				const y = padding.top + chartH - (dv / sharedMax) * chartH;
-				return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-			})
-			.join(' ');
-	}
-
 	const overlayColors = ['#ef4444', '#f59e0b', '#22c55e', '#06b6d4', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6', '#6366f1', '#a855f7'];
 
 	let avgIntervals = $derived.by(() => {
@@ -218,8 +199,6 @@
 		return avgs;
 	});
 
-	let overlayAvgPath = $derived(buildOverlayPath(avgIntervals, overlayMax));
-	let overlayStepX = $derived(word.length > 1 ? chartW / (word.length - 1) : 0);
 
 	// ── Insights ──
 
@@ -308,7 +287,257 @@
 		}));
 	});
 
-	let hoveredPoint: { x: number; y: number; val: number; letter: string; isHesitation: boolean; isRush: boolean; isReaction: boolean } | null = $state(null);
+	// ── ECharts options ──
+
+	let latestChartOption: any = $derived.by(() => {
+		if (!activeFlow || activePoints.length === 0) return {};
+
+		const budgetMs = getMsPerLetter(activeFlow);
+		const toDisplay = (ms: number) => chartUnit === 'pct' ? toPct(ms, budgetMs) : ms;
+		const displayAvg = chartUnit === 'pct' ? toPct(activeAvg, budgetMs) : activeAvg;
+		const displayMax = chartUnit === 'pct'
+			? Math.max(...activePoints.filter(p => p.val !== null).map(p => p.val as number), 1)
+			: activeMax;
+
+		const letters = activePoints.map(p => p.letter);
+
+		// Main line data (null for untyped)
+		const lineData = activePoints.map(p => p.val);
+
+		// Colored scatter points
+		const scatterData = activePoints.map(p => {
+			if (p.val === null) return null;
+			return {
+				value: p.val,
+				itemStyle: {
+					color: p.isReaction ? '#a855f7'
+						: p.isHesitation ? '#f59e0b'
+						: p.isRush ? '#06b6d4'
+						: activeFlow?.correct ? '#22c55e'
+						: '#ef4444',
+					borderColor: '#1f2937',
+					borderWidth: 1,
+				},
+			};
+		});
+
+		const markLines: any[] = [
+			{
+				yAxis: displayAvg,
+				label: { show: true, formatter: 'avg', fontSize: 9, color: '#6b7280', position: 'end' },
+				lineStyle: { color: '#6b7280', type: 'dashed', width: 1 },
+			},
+		];
+
+		if (chartUnit === 'pct') {
+			markLines.push({
+				yAxis: 100,
+				label: { show: true, formatter: '100%', fontSize: 9, color: '#ef4444', position: 'end' },
+				lineStyle: { color: '#ef4444', type: 'dashed', width: 1, opacity: 0.5 },
+			});
+		}
+
+		return {
+			animation: false,
+			backgroundColor: 'transparent',
+			grid: { left: 32, right: 40, top: 12, bottom: 24, containLabel: false },
+			xAxis: {
+				type: 'category' as const,
+				data: letters,
+				axisLabel: { color: '#d4a574', fontSize: 10, fontWeight: 'bold' as const },
+				axisLine: { show: false },
+				axisTick: { show: false },
+			},
+			yAxis: {
+				type: 'value' as const,
+				splitLine: { lineStyle: { color: '#374151', width: 0.5 } },
+				axisLabel: {
+					color: '#6b7280',
+					fontSize: 9,
+					formatter: (v: number) => formatVal(v),
+				},
+				axisLine: { show: false },
+				axisTick: { show: false },
+			},
+			tooltip: {
+				trigger: 'axis' as const,
+				backgroundColor: '#1f2937',
+				borderColor: '#374151',
+				textStyle: { color: '#fbbf24', fontSize: 11 },
+				formatter: (params: any) => {
+					const p = Array.isArray(params) ? params[0] : params;
+					if (p?.value == null) return '';
+					const idx = p.dataIndex;
+					const pt = activePoints[idx];
+					if (!pt || pt.val === null) return '';
+					const label = pt.isReaction ? '<span style="color:#a855f7">reaction</span>'
+						: pt.isHesitation ? '<span style="color:#f59e0b">hesitation</span>'
+						: pt.isRush ? '<span style="color:#06b6d4">autopilot</span>'
+						: '';
+					return `<b>${pt.letter}</b>: ${formatVal(pt.val)}${label ? '<br/>' + label : ''}`;
+				},
+			},
+			series: [
+				{
+					type: 'line',
+					_baseType: 'line',
+					data: lineData,
+					smooth: false,
+					symbol: 'none',
+					lineStyle: { color: '#f59e0b', width: 2 },
+					connectNulls: false,
+					markLine: {
+						silent: true,
+						symbol: 'none',
+						data: markLines,
+					},
+				},
+				{
+					type: 'scatter',
+					_fixed: true,
+					data: scatterData,
+					symbolSize: 8,
+					z: 10,
+				},
+			],
+		};
+	});
+
+	let historyChartOption: any = $derived.by(() => {
+		if (flows.length === 0) return {};
+
+		const letters = word.split('');
+		// X-axis: letters[1..end] since inter-key intervals start at letter index 1
+		const xLabels = letters.slice(1);
+
+		const series: any[] = [];
+
+		// Individual flow lines
+		flows.forEach((flow, i) => {
+			const interKey = getTypingIntervals(flow);
+			const budget = getMsPerLetter(flow);
+			const data = xLabels.map((_, j) => {
+				if (j < interKey.length) {
+					return chartUnit === 'pct' ? toPct(interKey[j], budget) : interKey[j];
+				}
+				return null;
+			});
+
+			series.push({
+				type: 'line',
+				_fixed: true,
+				data,
+				smooth: false,
+				symbol: 'none',
+				lineStyle: {
+					color: flow.correct ? overlayColors[i % overlayColors.length] : '#ef4444',
+					width: 1,
+					opacity: flow.correct ? 0.3 : 0.2,
+					type: flow.correct ? 'solid' : 'dashed',
+				},
+				silent: true,
+			});
+
+			// Error breakpoint scatter
+			if (!flow.correct && interKey.length > 0) {
+				const breakIdx = interKey.length - 1;
+				const breakData = xLabels.map((_, j) => {
+					if (j === breakIdx) {
+						return {
+							value: chartUnit === 'pct' ? toPct(interKey[breakIdx], budget) : interKey[breakIdx],
+							itemStyle: { color: '#ef4444', opacity: 0.6 },
+						};
+					}
+					return null;
+				});
+				series.push({
+					type: 'scatter',
+					_fixed: true,
+					data: breakData,
+					symbolSize: 5,
+					z: 5,
+					silent: true,
+				});
+			}
+		});
+
+		// Average line (bold white)
+		const avgData = xLabels.map((_, j) => {
+			if (j < avgIntervals.length) {
+				const budget = flows.length > 0 ? getMsPerLetter(flows[0]) : 500;
+				return chartUnit === 'pct' ? toPct(avgIntervals[j], budget) : avgIntervals[j];
+			}
+			return null;
+		});
+
+		series.push({
+			type: 'line',
+			_fixed: true,
+			data: avgData,
+			smooth: false,
+			symbol: 'none',
+			lineStyle: { color: '#f59e0b', width: 2.5 },
+			z: 10,
+			silent: true,
+		});
+
+		const markLines: any[] = [];
+		if (chartUnit === 'pct') {
+			markLines.push({
+				yAxis: 100,
+				label: { show: true, formatter: '100%', fontSize: 9, color: '#ef4444', position: 'end' },
+				lineStyle: { color: '#ef4444', type: 'dashed', width: 1, opacity: 0.5 },
+			});
+		}
+
+		// Add markLine to the average series if needed
+		if (markLines.length > 0) {
+			series[series.length - 1].markLine = {
+				silent: true,
+				symbol: 'none',
+				data: markLines,
+			};
+		}
+
+		const opt: any = {
+			animation: false,
+			backgroundColor: 'transparent',
+			grid: { left: 32, right: 40, top: 12, bottom: 24, containLabel: false },
+			xAxis: {
+				type: 'category',
+				data: xLabels,
+				axisLabel: { color: '#d4a574', fontSize: 10, fontWeight: 'bold' },
+				axisLine: { show: false },
+				axisTick: { show: false },
+			},
+			yAxis: {
+				type: 'value',
+				splitLine: { lineStyle: { color: '#374151', width: 0.5 } },
+				axisLabel: {
+					color: '#6b7280',
+					fontSize: 9,
+					formatter: (v: number) => formatVal(v),
+				},
+				axisLine: { show: false },
+				axisTick: { show: false },
+			},
+			tooltip: {
+				trigger: 'axis',
+				backgroundColor: '#1f2937',
+				borderColor: '#374151',
+				textStyle: { color: '#fbbf24', fontSize: 11 },
+			},
+			series,
+		};
+
+		if (word.length > 12) {
+			opt.dataZoom = [
+				{ type: 'inside', start: 0, end: 100 },
+			];
+		}
+
+		return opt;
+	});
 
 	const viewLabels = ['latest', 'history', 'insights'] as const;
 </script>
@@ -378,165 +607,7 @@
 					{/if}
 				{/if}
 
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<svg
-					viewBox="0 0 {width} {height}"
-					class="w-full"
-					onmouseleave={() => (hoveredPoint = null)}
-				>
-					<!-- Grid lines -->
-					{#each [0, 0.25, 0.5, 0.75, 1] as pct}
-						<line
-							x1={padding.left}
-							y1={padding.top + chartH * (1 - pct)}
-							x2={padding.left + chartW}
-							y2={padding.top + chartH * (1 - pct)}
-							stroke="var(--theme-border, #374151)"
-							stroke-width="0.5"
-						/>
-						<text
-							x={padding.left - 4}
-							y={padding.top + chartH * (1 - pct) + 3}
-							text-anchor="end"
-							fill="var(--theme-text-muted, #6b7280)"
-							font-size="7"
-						>
-							{formatVal(activeMax * pct)}
-						</text>
-					{/each}
-
-					<!-- Average line (dashed) -->
-					{#if activeAvg > 0}
-						{@const avgY = padding.top + chartH - (activeAvg / activeMax) * chartH}
-						<line
-							x1={padding.left}
-							y1={avgY}
-							x2={padding.left + chartW}
-							y2={avgY}
-							stroke="#6b7280"
-							stroke-width="0.8"
-							stroke-dasharray="4 3"
-						/>
-						<text
-							x={padding.left + chartW + 2}
-							y={avgY + 3}
-							fill="#6b7280"
-							font-size="6"
-						>
-							avg
-						</text>
-					{/if}
-
-					<!-- 100% budget line (only in % mode) -->
-					{#if chartUnit === 'pct' && activeMax > 0}
-						{@const budgetY = padding.top + chartH - (100 / activeMax) * chartH}
-						{#if budgetY >= padding.top && budgetY <= padding.top + chartH}
-							<line
-								x1={padding.left}
-								y1={budgetY}
-								x2={padding.left + chartW}
-								y2={budgetY}
-								stroke="#ef4444"
-								stroke-width="0.8"
-								stroke-dasharray="6 3"
-								opacity="0.5"
-							/>
-							<text
-								x={padding.left + chartW + 2}
-								y={budgetY + 3}
-								fill="#ef4444"
-								font-size="6"
-								opacity="0.7"
-							>
-								100%
-							</text>
-						{/if}
-					{/if}
-
-					<!-- Flow line -->
-					{#if activePath}
-						<path d={activePath} fill="none" stroke="var(--theme-accent, #f59e0b)" stroke-width="2" stroke-linejoin="round" />
-					{/if}
-
-					<!-- Points and letter labels -->
-					{#each activePoints as pt, i}
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<g
-							onmouseenter={() => { if (pt.val !== null) hoveredPoint = pt as any; }}
-							onmouseleave={() => (hoveredPoint = null)}
-							style="cursor: {pt.val !== null ? 'pointer' : 'default'};"
-						>
-							{#if pt.val !== null}
-								<circle
-									cx={pt.x} cy={pt.y} r="3.5"
-									fill={pt.isReaction ? '#a855f7' : pt.isHesitation ? '#f59e0b' : pt.isRush ? '#06b6d4' : activeFlow?.correct ? '#22c55e' : '#ef4444'}
-									stroke="var(--theme-surface, #1f2937)" stroke-width="1"
-								/>
-							{:else}
-								<!-- Untyped letter: faded X -->
-								<text
-									x={pt.x} y={padding.top + chartH - 4}
-									text-anchor="middle"
-									fill="#4b5563"
-									font-size="8"
-								>-</text>
-							{/if}
-							<text
-								x={pt.x}
-								y={padding.top + chartH + 14}
-								text-anchor="middle"
-								fill={pt.val !== null ? (pt.isReaction ? '#a855f7' : pt.isHesitation ? '#f59e0b' : 'var(--theme-accent, #d4a574)') : '#4b5563'}
-								font-size="8"
-								font-weight={pt.isHesitation ? '900' : 'bold'}
-								opacity={pt.val !== null ? 1 : 0.4}
-							>
-								{pt.letter}
-							</text>
-						</g>
-					{/each}
-
-					<!-- Hover tooltip -->
-					{#if hoveredPoint}
-						{@const label = hoveredPoint.isReaction ? 'reaction' : hoveredPoint.isHesitation ? 'hesitation' : hoveredPoint.isRush ? 'autopilot' : ''}
-						{@const tooltipW = label ? 60 : 36}
-						{@const tooltipH = label ? 20 : 14}
-						{@const nearTop = hoveredPoint.y - tooltipH - 8 < padding.top}
-						{@const tipY = nearTop ? hoveredPoint.y + 8 : hoveredPoint.y - tooltipH - 6}
-						{@const tipX = Math.max(padding.left, Math.min(hoveredPoint.x - tooltipW / 2, width - tooltipW - 2))}
-						{@const tipCenterX = tipX + tooltipW / 2}
-						<rect
-							x={tipX}
-							y={tipY}
-							width={tooltipW}
-							height={tooltipH}
-							rx="3"
-							fill="var(--theme-surface, #1f2937)"
-							stroke={hoveredPoint.isReaction ? '#a855f7' : hoveredPoint.isHesitation ? '#f59e0b' : hoveredPoint.isRush ? '#06b6d4' : 'var(--theme-accent, #f59e0b)'}
-							stroke-width="0.5"
-						/>
-						<text
-							x={tipCenterX}
-							y={tipY + (label ? 9 : 10)}
-							text-anchor="middle"
-							fill="var(--theme-accent, #fbbf24)"
-							font-size="7"
-							font-weight="bold"
-						>
-							{formatVal(hoveredPoint.val)}
-						</text>
-						{#if label}
-							<text
-								x={tipCenterX}
-								y={tipY + 17}
-								text-anchor="middle"
-								fill={hoveredPoint.isReaction ? '#a855f7' : hoveredPoint.isHesitation ? '#f59e0b' : '#06b6d4'}
-								font-size="6"
-							>
-								{label}
-							</text>
-						{/if}
-					{/if}
-				</svg>
+				<Chart option={latestChartOption} height="140px" />
 
 				<!-- Legend -->
 				<div class="mt-1 flex flex-wrap gap-3 text-[9px] text-base-text-muted">
@@ -575,97 +646,7 @@
 		{:else if view === 'history'}
 			<div>
 				<p class="mb-1 text-[10px] text-base-text-muted">{flows.length} attempts overlaid &middot; white = average</p>
-				<svg viewBox="0 0 {width} {height}" class="w-full">
-					<!-- Grid lines -->
-					{#each [0, 0.25, 0.5, 0.75, 1] as pct}
-						<line
-							x1={padding.left}
-							y1={padding.top + chartH * (1 - pct)}
-							x2={padding.left + chartW}
-							y2={padding.top + chartH * (1 - pct)}
-							stroke="var(--theme-border, #374151)"
-							stroke-width="0.5"
-						/>
-						<text
-							x={padding.left - 4}
-							y={padding.top + chartH * (1 - pct) + 3}
-							text-anchor="end"
-							fill="var(--theme-text-muted, #6b7280)"
-							font-size="7"
-						>
-							{formatVal(overlayMax * pct)}
-						</text>
-					{/each}
-
-					<!-- Individual flow lines -->
-					{#each flows as flow, i}
-						{@const interKey = getTypingIntervals(flow)}
-						{@const path = buildOverlayPath(interKey, overlayMax, flow)}
-						{#if path}
-							<path
-								d={path}
-								fill="none"
-								stroke={flow.correct ? overlayColors[i % overlayColors.length] : '#ef4444'}
-								stroke-width="1"
-								stroke-linejoin="round"
-								opacity={flow.correct ? 0.3 : 0.2}
-								stroke-dasharray={flow.correct ? 'none' : '3 2'}
-							/>
-							<!-- Error breakpoint marker -->
-							{#if !flow.correct && interKey.length > 0}
-								{@const breakIdx = interKey.length - 1}
-								{@const breakX = padding.left + (breakIdx + 1) * overlayStepX}
-								{@const breakY = padding.top + chartH - (interKey[breakIdx] / overlayMax) * chartH}
-								<circle cx={breakX} cy={breakY} r="2" fill="#ef4444" opacity="0.6" />
-							{/if}
-						{/if}
-					{/each}
-
-					<!-- 100% budget line (only in % mode) -->
-					{#if chartUnit === 'pct' && overlayMax > 0}
-						{@const budgetY = padding.top + chartH - (100 / overlayMax) * chartH}
-						{#if budgetY >= padding.top && budgetY <= padding.top + chartH}
-							<line
-								x1={padding.left}
-								y1={budgetY}
-								x2={padding.left + chartW}
-								y2={budgetY}
-								stroke="#ef4444"
-								stroke-width="0.8"
-								stroke-dasharray="6 3"
-								opacity="0.5"
-							/>
-							<text
-								x={padding.left + chartW + 2}
-								y={budgetY + 3}
-								fill="#ef4444"
-								font-size="6"
-								opacity="0.7"
-							>
-								100%
-							</text>
-						{/if}
-					{/if}
-
-					<!-- Average line (bold white) -->
-					{#if overlayAvgPath}
-						<path d={overlayAvgPath} fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" />
-					{/if}
-
-					<!-- Letter labels -->
-					{#each word.split('') as letter, i}
-						<text
-							x={padding.left + i * overlayStepX}
-							y={padding.top + chartH + 14}
-							text-anchor="middle"
-							fill="var(--theme-accent, #d4a574)"
-							font-size="8"
-							font-weight="bold"
-						>
-							{letter}
-						</text>
-					{/each}
-				</svg>
+				<Chart option={historyChartOption} height="140px" />
 
 				<!-- Legend -->
 				<div class="mt-1.5 flex flex-wrap gap-3 text-[9px] text-base-text-muted">

@@ -41,6 +41,14 @@ export interface SavedWord {
 }
 
 
+/** Instant-fail: timeout/misclick — single [0] interval and incorrect. Exclude from accuracy stats. */
+export function isInstantFail(flow: TypingFlow): boolean {
+    return !flow.correct
+        && flow.letterIntervals.length <= 1
+        && (flow.letterIntervals.length === 0 || flow.letterIntervals[0] === 0)
+        && (flow.totalDuration === 0 || flow.totalDuration === undefined);
+}
+
 export interface LetterStyleSettings {
     randomSize: boolean;
     randomWeight: boolean;   // added
@@ -112,5 +120,6 @@ export interface MindDojoSettings {
     lockedMinSpeed: number;  // commitment lock — cannot go below this speed
     autoSpeed: boolean;      // automatic speed cycling (base/flow/challenge)
     autoSpeedBase: number;   // base speed for auto mode (auto-calibrated)
+    autoFatigueRest: boolean; // auto-trigger rest when fatigue detected
     // focusKeys: FocusKeys
 }

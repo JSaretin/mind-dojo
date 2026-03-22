@@ -22,8 +22,6 @@
 	let showHowToPlay = $state(false);
 	let showPhilosophy = $state(false);
 	let showJournal = $state(false);
-	let journalText = $state('');
-	let journalSaved = $state(false);
 	let journal = new Journal();
 
 	// Apply saved theme on load
@@ -39,7 +37,13 @@
 	if (browser) {
 		loadWords().then((dictWords) => {
 			mindDojo = new MindDojo(dictWords);
-			appState = 'intro';
+			// Skip intro for returning users
+			if (localStorage.getItem('hasPlayed')) {
+				appState = 'game';
+				mindDojo.startSessionTimer();
+			} else {
+				appState = 'intro';
+			}
 		});
 	}
 
@@ -472,6 +476,11 @@
 					<span class="text-base-text-muted">{mindDojo.accuracy}%</span>
 				</div>
 				<FocusTimeline timeline={mindDojo.sessionTimeline} />
+				{#if mindDojo.fatigueWarning}
+					<div class="rounded bg-amber-500/10 border border-amber-500/20 px-2 py-1 text-[10px] text-amber-400">
+						Focus fading — consider a break
+					</div>
+				{/if}
 			</div>
 
 			<!-- Combo + Actions (right) -->
@@ -560,17 +569,25 @@
 				</div>
 			{/if}
 
-			<!-- Rest phase overlay -->
+			<!-- Rest / Fatigue overlay -->
 			{#if mindDojo.sessionPhase === 'rest'}
 				<div class="absolute inset-0 z-30 flex items-center justify-center bg-black/85 backdrop-blur-sm">
 					<div class="w-full max-w-lg px-6">
 						<!-- Header -->
 						<div class="mb-6 text-center">
-							<h2 class="mb-1 text-3xl font-black text-accent">Rest</h2>
-							{#if mindDojo.restSecondsLeft > 0}
+							{#if mindDojo.restReason === 'fatigue'}
+								<h2 class="mb-1 text-3xl font-black text-amber-400">Focus Fading</h2>
 								<p class="text-sm text-base-text-muted">
-									Next session in <span class="font-mono font-bold text-accent">{Math.floor(mindDojo.restSecondsLeft / 60)}:{(mindDojo.restSecondsLeft % 60).toString().padStart(2, '0')}</span>
+									Your accuracy dropped <span class="font-bold text-amber-400">{mindDojo.fatiguePeakAccuracy - mindDojo.sessionRollingAccuracy}%</span> below your peak.
+									Take a break — your mind needs rest.
 								</p>
+							{:else}
+								<h2 class="mb-1 text-3xl font-black text-accent">Rest</h2>
+								{#if mindDojo.restSecondsLeft > 0}
+									<p class="text-sm text-base-text-muted">
+										Next session in <span class="font-mono font-bold text-accent">{Math.floor(mindDojo.restSecondsLeft / 60)}:{(mindDojo.restSecondsLeft % 60).toString().padStart(2, '0')}</span>
+									</p>
+								{/if}
 							{/if}
 						</div>
 
@@ -594,40 +611,29 @@
 							</div>
 						</div>
 
-						<!-- Journal prompt -->
-						<div class="mb-4 rounded-lg border border-base-border bg-surface p-4">
-							<p class="mb-2 text-xs font-bold uppercase tracking-wide text-accent">Reflect on this session</p>
-							<p class="mb-3 text-xs text-base-text-muted">
-								What did you notice about your focus? Where did your mind wander?
-							</p>
-							<textarea
-								bind:value={journalText}
-								placeholder="Write your observations..."
-								class="w-full rounded-md border border-base-border bg-surface-hover px-3 py-2 text-sm text-base-text placeholder:text-base-text-muted focus:border-accent focus:outline-none"
-								rows="3"
-							></textarea>
-							{#if journalText.trim()}
-								<button
-									onclick={() => {
-										journal.createEntry('session', journalText, [], {
-											correct: mindDojo!.sessionCorrect,
-											errors: mindDojo!.sessionErrors,
-											accuracy: mindDojo!.accuracy,
-											bestCombo: mindDojo!.bestCombo,
-											wordsTyped: mindDojo!.sessionCorrect + mindDojo!.sessionErrors,
-										});
-										journalText = '';
-										journalSaved = true;
-										setTimeout(() => journalSaved = false, 2000);
-									}}
-									class="mt-2 rounded-md bg-accent-muted px-4 py-1.5 text-xs font-bold text-accent transition-colors hover:bg-accent-muted"
-								>
-									Save Reflection
-								</button>
-							{/if}
-							{#if journalSaved}
-								<span class="ml-2 text-xs text-green-400">Saved</span>
-							{/if}
+						<!-- Action buttons -->
+						<div class="mb-4 flex justify-center gap-3">
+							<button
+								onclick={() => { showWordBank = true; }}
+								class="flex items-center gap-2 rounded-lg border border-base-border bg-surface px-5 py-2.5 text-sm font-bold text-base-text transition-colors hover:border-accent hover:text-accent"
+							>
+								<span class="text-base">📊</span> Word Bank
+							</button>
+							<button
+								onclick={() => {
+									journal.createEntry('session', '', [], {
+										correct: mindDojo!.sessionCorrect,
+										errors: mindDojo!.sessionErrors,
+										accuracy: mindDojo!.accuracy,
+										bestCombo: mindDojo!.bestCombo,
+										wordsTyped: mindDojo!.sessionCorrect + mindDojo!.sessionErrors,
+									});
+									showJournal = true;
+								}}
+								class="flex items-center gap-2 rounded-lg border border-base-border bg-surface px-5 py-2.5 text-sm font-bold text-base-text transition-colors hover:border-accent hover:text-accent"
+							>
+								<span class="text-base">📝</span> Journal
+							</button>
 						</div>
 
 						<!-- Continue button -->

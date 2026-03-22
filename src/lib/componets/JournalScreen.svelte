@@ -66,6 +66,44 @@
 
 	let activeEntry = $derived(activeEntryId ? journal.entries.find(e => e.id === activeEntryId) || null : null);
 
+	// All tags across entries with counts
+	let allTags = $derived.by(() => {
+		const counts = new Map<string, number>();
+		for (const e of journal.entries) {
+			for (const t of e.tags) {
+				counts.set(t, (counts.get(t) || 0) + 1);
+			}
+		}
+		return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+	});
+
+	// Extract wiki-linked words and entries from active entry HTML
+	let activeLinks = $derived.by(() => {
+		if (!editorText) return { words: [] as string[], entries: [] as string[] };
+		const wordMatches = [...editorText.matchAll(/wiki-link--word[^>]*data-link-id="([^"]+)"/g)];
+		const entryMatches = [...editorText.matchAll(/wiki-link--entry[^>]*data-link-id="([^"]+)"/g)];
+		return {
+			words: [...new Set(wordMatches.map(m => m[1]))],
+			entries: [...new Set(entryMatches.map(m => m[1]))],
+		};
+	});
+
+	// Related entries: share tags with active entry
+	let relatedEntries = $derived.by(() => {
+		if (!activeEntry || activeEntry.tags.length === 0) return [];
+		const tagSet = new Set(activeEntry.tags);
+		return journal.entries
+			.filter(e => e.id !== activeEntry!.id && e.tags.some(t => tagSet.has(t)))
+			.slice(0, 8);
+	});
+
+	// Active entry word count
+	let activeWordCount = $derived.by(() => {
+		if (!editorText) return 0;
+		const text = stripHtml(editorText);
+		return text.split(/\s+/).filter(Boolean).length;
+	});
+
 	function selectEntry(entry: JournalEntry) {
 		activeEntryId = entry.id;
 		editorText = entry.text;
@@ -310,8 +348,8 @@
 			</div>
 		</div>
 
-		<!-- Right: Editor -->
-		<div class="flex flex-1 flex-col">
+		<!-- Center: Editor -->
+		<div class="flex max-w-[900px] flex-1 flex-col border-r border-base-border">
 			{#if isNewEntry || activeEntry}
 				<!-- Editor header -->
 				<div class="flex items-center justify-between border-b border-base-border bg-surface/50 px-6 py-3">
@@ -371,6 +409,118 @@
 					>
 						+ New Entry
 					</button>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Right: Journal context -->
+		<div class="flex w-72 flex-shrink-0 flex-col bg-surface overflow-y-auto">
+			{#if activeEntry || isNewEntry}
+				<!-- Entry metadata -->
+				<div class="border-b border-base-border px-4 py-3">
+					<h3 class="mb-2 text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Entry Info</h3>
+					<div class="space-y-1.5 text-[11px]">
+						{#if activeEntry}
+							<div class="flex justify-between">
+								<span class="text-base-text-muted">Created</span>
+								<span class="text-base-text">{new Date(activeEntry.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+							</div>
+							{#if activeEntry.type === 'session' && activeEntry.sessionStats}
+								<div class="flex justify-between">
+									<span class="text-base-text-muted">Type</span>
+									<span class="text-cyan-400">Session</span>
+								</div>
+								<div class="flex justify-between">
+									<span class="text-base-text-muted">Accuracy</span>
+									<span class="{activeEntry.sessionStats.accuracy >= 60 ? 'text-green-400' : 'text-amber-400'}">{activeEntry.sessionStats.accuracy}%</span>
+								</div>
+							{/if}
+						{/if}
+						<div class="flex justify-between">
+							<span class="text-base-text-muted">Words</span>
+							<span class="text-base-text">{activeWordCount}</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-base-text-muted">Links</span>
+							<span class="text-base-text">{activeLinks.words.length + activeLinks.entries.length}</span>
+						</div>
+					</div>
+				</div>
+
+				<!-- Linked words -->
+				{#if activeLinks.words.length > 0}
+					<div class="border-b border-base-border px-4 py-3">
+						<h3 class="mb-2 text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Linked Words</h3>
+						<div class="flex flex-wrap gap-1">
+							{#each activeLinks.words as word}
+								<span class="rounded bg-accent-muted/50 px-2 py-0.5 text-[11px] font-medium text-accent">{word}</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Linked entries -->
+				{#if activeLinks.entries.length > 0}
+					<div class="border-b border-base-border px-4 py-3">
+						<h3 class="mb-2 text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Linked Entries</h3>
+						<div class="space-y-1">
+							{#each activeLinks.entries as entryId}
+								{@const linkedEntry = journal.entries.find(e => e.id === entryId)}
+								{#if linkedEntry}
+									<button
+										onclick={() => selectEntry(linkedEntry)}
+										class="block w-full rounded px-2 py-1 text-left text-[11px] text-base-text transition-colors hover:bg-surface-hover/50"
+									>
+										<div class="line-clamp-1">{stripHtml(linkedEntry.text).slice(0, 60) || 'Untitled'}</div>
+										<span class="text-[9px] text-base-text-muted">{new Date(linkedEntry.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+									</button>
+								{/if}
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Related entries (shared tags) -->
+				{#if relatedEntries.length > 0}
+					<div class="border-b border-base-border px-4 py-3">
+						<h3 class="mb-2 text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Related</h3>
+						<div class="space-y-1">
+							{#each relatedEntries as entry}
+								<button
+									onclick={() => selectEntry(entry)}
+									class="block w-full rounded px-2 py-1 text-left text-[11px] text-base-text transition-colors hover:bg-surface-hover/50"
+								>
+									<div class="line-clamp-1">{stripHtml(entry.text).slice(0, 60) || 'Untitled'}</div>
+									<div class="flex gap-1 text-[9px]">
+										{#each entry.tags.filter(t => activeEntry?.tags.includes(t)).slice(0, 3) as tag}
+											<span class="text-accent">#{tag}</span>
+										{/each}
+									</div>
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			{/if}
+
+			<!-- All tags -->
+			{#if allTags.length > 0}
+				<div class="px-4 py-3">
+					<h3 class="mb-2 text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Tags</h3>
+					<div class="flex flex-wrap gap-1">
+						{#each allTags as [tag, count]}
+							<button
+								onclick={() => { searchQuery = `#${tag}`; }}
+								class="rounded bg-surface-hover/50 px-2 py-0.5 text-[11px] text-base-text-muted transition-colors hover:bg-accent-muted hover:text-accent"
+							>
+								#{tag} <span class="text-[9px] opacity-60">{count}</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+			{:else if !activeEntry && !isNewEntry}
+				<div class="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
+					<p class="text-xs text-base-text-muted">Entry context and tags will appear here</p>
 				</div>
 			{/if}
 		</div>

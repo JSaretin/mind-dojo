@@ -1,6 +1,7 @@
 import { browser } from "$app/environment"
 import { getRandomChar, initializeAudio } from "$lib"
 import { SavedWordDB } from "./database.svelte"
+import { isInstantFail } from "./structure"
 import type { MindDojoSettings, SavedWord, TypingFlow, Word, Words } from "./structure"
 import { generateRandomShiftOfWordPosition, getBaseStyle } from "./style"
 
@@ -61,6 +62,7 @@ const defaultSetting: MindDojoSettings = {
     lockedMinSpeed: 0,
     autoSpeed: false,
     autoSpeedBase: 0,
+    autoFatigueRest: true,
 };
 
 
@@ -160,11 +162,25 @@ export class MindDojo {
     sessionTimeline: { word: string; correct: boolean; duration: number; ts: number }[] = $state(
         browser ? (() => { try { return JSON.parse(localStorage.getItem("sessionTimeline") || "[]") } catch { return [] } })() : []
     )
-    sessionPhase: 'active' | 'rest' | 'idle' = $state('idle')
+    sessionPhase: 'active' | 'rest' | 'idle' = $state(
+        browser ? (localStorage.getItem('sessionPhase') as 'active' | 'rest' | 'idle') || 'idle' : 'idle'
+    )
     restSecondsLeft = $state(0)
+    /** Active typing time in ms (sum of word durations + reaction times) */
+    private sessionActiveTime = $state(0)
+    /** Timestamp of last word completion — used for idle gap detection */
+    private lastWordCompletedAt = $state(Date.now())
+    /** Whether rest was triggered by fatigue detection (vs timer) */
+    restReason: 'timer' | 'fatigue' | null = $state(null)
     private sessionTimer: ReturnType<typeof setTimeout> | null = null
     private restInterval: ReturnType<typeof setInterval> | null = null
     sessionJournals: { text: string; timestamp: number }[] = $state([])
+
+    // ── Fatigue Detection ──
+    private fatigueResults: boolean[] = $state([])
+    fatiguePeakAccuracy = $state(0)
+    private readonly FATIGUE_WINDOW = 30
+    private readonly FATIGUE_DROP_THRESHOLD = 20 // percentage points
 
     // ── Auto Speed ──
     autoSpeedZone: 'base' | 'flow' | 'challenge' = $state('base')
@@ -241,8 +257,12 @@ export class MindDojo {
         if (!this.settings.autoSpeed) return
 
         this.autoSpeedResults.push(correct);
+        // Errors count double — every error visibly decreases progress
+        if (!correct) {
+            this.autoSpeedResults.push(false);
+        }
         // Keep only the last N results
-        if (this.autoSpeedResults.length > this.AUTO_SPEED_WINDOW) {
+        while (this.autoSpeedResults.length > this.AUTO_SPEED_WINDOW) {
             this.autoSpeedResults.shift();
         }
         this.autoSpeedWordsInZone++;
@@ -252,8 +272,8 @@ export class MindDojo {
 
         switch (this.autoSpeedZone) {
             case 'base':
-                // Gate: advance to Flow when accuracy >= 80% over enough words
-                if (enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
+                // Gate: advance to Flow only on a correct word — never graduate on an error
+                if (correct && enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
                     this.setAutoSpeedZone('flow');
                 }
                 break;
@@ -266,8 +286,8 @@ export class MindDojo {
                     this.settings.autoSpeedBase = Math.max(newBase, this.settings.lockedMinSpeed || 1);
                     this.setAutoSpeedZone('base');
                 }
-                // Gate: advance to Challenge when accuracy >= 80% over enough words
-                else if (enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
+                // Gate: advance to Challenge only on a correct word
+                else if (correct && enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
                     // Flow mastered — raise base speed
                     this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * this.AUTO_SPEED_BUMP).toFixed(4));
                     this.setAutoSpeedZone('challenge');
@@ -302,6 +322,33 @@ export class MindDojo {
         return total > 0 ? Math.round((this.sessionCorrect / total) * 100) : 100
     }
 
+    get sessionRollingAccuracy(): number {
+        if (this.fatigueResults.length === 0) return 100
+        return Math.round((this.fatigueResults.filter(r => r).length / this.fatigueResults.length) * 100)
+    }
+
+    get fatigueWarning(): boolean {
+        if (this.fatigueResults.length < this.FATIGUE_WINDOW) return false
+        return this.fatiguePeakAccuracy - this.sessionRollingAccuracy >= this.FATIGUE_DROP_THRESHOLD
+    }
+
+    private recordFatigueResult(correct: boolean) {
+        this.fatigueResults.push(correct)
+        while (this.fatigueResults.length > this.FATIGUE_WINDOW) {
+            this.fatigueResults.shift()
+        }
+        if (this.fatigueResults.length >= this.FATIGUE_WINDOW) {
+            const acc = this.sessionRollingAccuracy
+            if (acc > this.fatiguePeakAccuracy) {
+                this.fatiguePeakAccuracy = acc
+            }
+            // Auto-trigger rest on fatigue if enabled
+            if (this.settings.autoFatigueRest && this.sessionPhase === 'active' && this.fatigueWarning) {
+                this.enterRest('fatigue')
+            }
+        }
+    }
+
     private persistProgress() {
         if (!browser) return
         localStorage.setItem("dojoProgress", JSON.stringify({
@@ -320,19 +367,25 @@ export class MindDojo {
 
     startSessionTimer() {
         this.clearTimers()
-        const duration = this.settings.sessionDuration
-        if (!duration || duration <= 0) {
-            this.sessionPhase = 'active'
-            return
-        }
         this.sessionPhase = 'active'
-        this.sessionTimer = setTimeout(() => {
-            this.enterRest()
-        }, duration * 60 * 1000)
+        this.sessionActiveTime = 0
+        if (browser) localStorage.setItem('sessionPhase', 'active')
     }
 
-    private enterRest() {
+    /** Track active typing time and trigger rest when session duration exceeded */
+    private checkSessionTime(wordDurationMs: number) {
+        const duration = this.settings.sessionDuration
+        if (!duration || duration <= 0) return
+        this.sessionActiveTime += wordDurationMs
+        if (this.sessionActiveTime >= duration * 60 * 1000) {
+            this.enterRest()
+        }
+    }
+
+    private enterRest(reason: 'timer' | 'fatigue' = 'timer') {
         this.sessionPhase = 'rest'
+        this.restReason = reason
+        if (browser) localStorage.setItem('sessionPhase', 'rest')
         // Stop the word timer
         if (this.timer) {
             cancelAnimationFrame(this.timer)
@@ -353,6 +406,11 @@ export class MindDojo {
     endRest() {
         this.clearTimers()
         this.sessionPhase = 'active'
+        this.sessionActiveTime = 0
+        this.restReason = null
+        this.fatigueResults = []
+        this.fatiguePeakAccuracy = 0
+        if (browser) localStorage.setItem('sessionPhase', 'active')
         this.sessionCorrect = 0
         this.sessionErrors = 0
         this.sessionTimeline = []
@@ -361,6 +419,43 @@ export class MindDojo {
         this.combo = 0
         this.startSessionTimer()
         this.pickNextWord()
+    }
+
+    /** Minimum idle gap (ms) that triggers a session boundary. Uses rest duration or 5 min default. */
+    private get idleThresholdMs(): number {
+        const restMins = this.settings.restDuration
+        return Math.max(restMins > 0 ? restMins : 5, 5) * 60 * 1000
+    }
+
+    /** Check for idle gap and reset session state if user was away too long */
+    private checkIdleGap() {
+        const now = Date.now()
+        const gap = now - this.lastWordCompletedAt
+        if (gap >= this.idleThresholdMs) {
+            // Mark a session boundary in the timeline
+            this.sessionTimeline.push({
+                word: '---',
+                correct: true,
+                duration: 0,
+                ts: now,
+            })
+            // Reset session state for a fresh start
+            this.sessionCorrect = 0
+            this.sessionErrors = 0
+            this.sessionActiveTime = 0
+            this.sessionStartTime = now
+            this.combo = 0
+            this.fatigueResults = []
+            this.fatiguePeakAccuracy = 0
+            this.restReason = null
+            // If we were in rest (persisted), go back to active
+            if (this.sessionPhase === 'rest') {
+                this.clearTimers()
+                this.sessionPhase = 'active'
+                if (browser) localStorage.setItem('sessionPhase', 'active')
+            }
+            this.persistTimeline()
+        }
     }
 
     stopSessionTimer() {
@@ -651,13 +746,15 @@ export class MindDojo {
     }
 
     handleError() {
-        this.recordAutoSpeedResult(false)
+        const flow = this.currentWord ? this.buildTypingFlow(false) : null
+        if (!flow || !isInstantFail(flow)) {
+            this.recordAutoSpeedResult(false)
+            this.recordFatigueResult(false)
+        }
         if (!this.settings.autoSpeed) {
             this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
         }
-        if (this.currentWord) {
-            const flow = this.buildTypingFlow(false)
-
+        if (this.currentWord && flow) {
             this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                 sw.stats.wronglyTyped = (sw.stats.wronglyTyped || 0) + 1
                 return sw
@@ -668,13 +765,16 @@ export class MindDojo {
         this.combo = 0
         this.sessionErrors++
         this.totalErrors++
+        const errorDuration = performance.now() - this.wordShownAt
+        this.lastWordCompletedAt = Date.now()
         this.sessionTimeline.push({
             word: this.currentWord?.word || '',
             correct: false,
-            duration: performance.now() - this.wordShownAt,
+            duration: errorDuration,
             ts: Date.now(),
         })
         this.persistTimeline()
+        this.checkSessionTime(errorDuration)
         this.lastEvent = { type: "error", id: ++this.eventCounter }
         this.persistProgress()
 
@@ -725,6 +825,7 @@ export class MindDojo {
 
         if (this.currentWord?.word === this.typedWord) {
             this.recordAutoSpeedResult(true)
+            this.recordFatigueResult(true)
             if (this.currentWord) {
                 const flow = this.buildTypingFlow(true)
 
@@ -738,13 +839,16 @@ export class MindDojo {
             this.combo++
             this.sessionCorrect++
             this.totalCorrect++
+            const successDuration = performance.now() - this.wordShownAt
+            this.lastWordCompletedAt = Date.now()
             this.sessionTimeline.push({
                 word: this.currentWord?.word || '',
                 correct: true,
-                duration: performance.now() - this.wordShownAt,
+                duration: successDuration,
                 ts: Date.now(),
             })
             this.persistTimeline()
+            this.checkSessionTime(successDuration)
             if (this.combo > this.bestCombo) this.bestCombo = this.combo
 
             const wordLen = this.currentWord?.word.length || 1
@@ -974,6 +1078,7 @@ export class MindDojo {
 
     pickNextWord(): void {
         if (this.sessionExpired) return
+        this.checkIdleGap()
         this.checkLevelReset()
         this.advanceAutoSpeedZone()
         this.generateRandomSetting();

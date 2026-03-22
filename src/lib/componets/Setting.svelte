@@ -458,6 +458,20 @@
 						Unlimited session. No automatic breaks.
 					{/if}
 				</p>
+
+				<!-- Auto fatigue detection -->
+				<div class="mt-3 flex items-center justify-between border-t border-base-border pt-3">
+					<div>
+						<span class="text-xs text-base-text">Auto fatigue detection</span>
+						<p class="text-[10px] text-base-text-muted">Pause when your accuracy drops 20+ points below your session peak</p>
+					</div>
+					<button
+						onclick={() => { settings.autoFatigueRest = !settings.autoFatigueRest; }}
+						class="rounded-full px-3 py-1 text-[10px] font-bold transition-colors {settings.autoFatigueRest ? 'bg-green-500/20 text-green-400' : 'bg-surface-hover text-base-text-muted'}"
+					>
+						{settings.autoFatigueRest ? 'ON' : 'OFF'}
+					</button>
+				</div>
 			</div>
 		</div>
 
