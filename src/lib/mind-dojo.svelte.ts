@@ -168,25 +168,14 @@ export class MindDojo {
 
     // ── Auto Speed ──
     autoSpeedZone: 'base' | 'flow' | 'challenge' = $state('base')
-    private autoSpeedWordCount = 0
-    private autoSpeedCycleCorrect = 0
-    private autoSpeedCycleTotal = 0
-
-    // Cycle: base (warm-up) → flow → challenge → base (recover), random counts per zone
-    private readonly AUTO_SPEED_ZONES = [
-        { zone: 'base' as const, min: 5, max: 15 },
-        { zone: 'flow' as const, min: 15, max: 25 },
-        { zone: 'challenge' as const, min: 3, max: 8 },
-        { zone: 'base' as const, min: 3, max: 8 },
-    ]
-    private autoSpeedCycleIndex = 0
+    private autoSpeedResults: boolean[] = [] // rolling window of results
     private autoSpeedWordsInZone = 0
-    private autoSpeedCurrentZoneTarget = 10
+    private autoSpeedChallengeTarget = 5
 
-    private rollZoneTarget() {
-        const phase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
-        this.autoSpeedCurrentZoneTarget = Math.floor(Math.random() * (phase.max - phase.min + 1)) + phase.min
-    }
+    // Rolling window: only the last N results count
+    private readonly AUTO_SPEED_WINDOW = 10
+    private readonly AUTO_SPEED_GATE_THRESHOLD = 0.80
+    private readonly AUTO_SPEED_DROP_THRESHOLD = 0.60
 
     get autoSpeedFlowSpeed() { return parseFloat((this.settings.autoSpeedBase * 1.1).toFixed(4)); }
     get autoSpeedChallengeSpeed() { return parseFloat((this.settings.autoSpeedBase * 1.25).toFixed(4)); }
@@ -199,47 +188,79 @@ export class MindDojo {
         }
     }
 
+    private get autoSpeedAccuracy(): number {
+        if (this.autoSpeedResults.length === 0) return 0;
+        return this.autoSpeedResults.filter(r => r).length / this.autoSpeedResults.length;
+    }
+
+    private get autoSpeedWindowFull(): boolean {
+        return this.autoSpeedResults.length >= this.AUTO_SPEED_WINDOW;
+    }
+
+    private setAutoSpeedZone(zone: 'base' | 'flow' | 'challenge') {
+        this.autoSpeedZone = zone;
+        this.autoSpeedResults = [];
+        this.autoSpeedWordsInZone = 0;
+        this.settings.speed = this.getAutoSpeedForZone(zone);
+        if (zone === 'challenge') {
+            this.autoSpeedChallengeTarget = Math.floor(Math.random() * 6) + 3; // 3-8 words
+        }
+    }
+
     private advanceAutoSpeedZone() {
         if (!this.settings.autoSpeed) return
 
-        this.autoSpeedWordsInZone++
-
-        if (this.autoSpeedWordsInZone >= this.autoSpeedCurrentZoneTarget) {
-            const currentPhase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
-
-            // End of zone — if leaving Flow, check accuracy for calibration
-            if (currentPhase.zone === 'flow' && this.autoSpeedCycleTotal > 0) {
-                const flowAcc = this.autoSpeedCycleCorrect / this.autoSpeedCycleTotal
-                if (flowAcc > 0.85) {
-                    // Too easy — raise base
-                    this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * 1.05).toFixed(4))
-                } else if (flowAcc < 0.60) {
-                    // Too hard — lower base (but never below locked min)
-                    const newBase = parseFloat((this.settings.autoSpeedBase * 0.95).toFixed(4))
-                    this.settings.autoSpeedBase = Math.max(newBase, this.settings.lockedMinSpeed || 1)
-                }
-                this.autoSpeedCycleCorrect = 0
-                this.autoSpeedCycleTotal = 0
-            }
-
-            // Move to next zone in cycle
-            this.autoSpeedCycleIndex = (this.autoSpeedCycleIndex + 1) % this.AUTO_SPEED_ZONES.length
-            this.autoSpeedWordsInZone = 0
-            this.rollZoneTarget()
-        }
-
-        // Set the speed for the new zone
-        const nextPhase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
-        this.autoSpeedZone = nextPhase.zone
-        this.settings.speed = this.getAutoSpeedForZone(nextPhase.zone)
+        // Apply current zone speed (in case settings changed)
+        this.settings.speed = this.getAutoSpeedForZone(this.autoSpeedZone);
     }
 
     private recordAutoSpeedResult(correct: boolean) {
         if (!this.settings.autoSpeed) return
-        const currentPhase = this.AUTO_SPEED_ZONES[this.autoSpeedCycleIndex]
-        if (currentPhase.zone === 'flow') {
-            this.autoSpeedCycleTotal++
-            if (correct) this.autoSpeedCycleCorrect++
+
+        this.autoSpeedResults.push(correct);
+        // Keep only the last N results
+        if (this.autoSpeedResults.length > this.AUTO_SPEED_WINDOW) {
+            this.autoSpeedResults.shift();
+        }
+        this.autoSpeedWordsInZone++;
+
+        const acc = this.autoSpeedAccuracy;
+        const enoughData = this.autoSpeedWindowFull;
+
+        switch (this.autoSpeedZone) {
+            case 'base':
+                // Gate: advance to Flow when accuracy >= 80% over enough words
+                if (enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
+                    this.setAutoSpeedZone('flow');
+                }
+                break;
+
+            case 'flow':
+                // Drop back to Base if accuracy < 60%
+                if (enoughData && acc < this.AUTO_SPEED_DROP_THRESHOLD) {
+                    // Too hard — lower base speed
+                    const newBase = parseFloat((this.settings.autoSpeedBase * 0.95).toFixed(4));
+                    this.settings.autoSpeedBase = Math.max(newBase, this.settings.lockedMinSpeed || 1);
+                    this.setAutoSpeedZone('base');
+                }
+                // Gate: advance to Challenge when accuracy >= 80% over enough words
+                else if (enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
+                    // Flow mastered — raise base speed
+                    this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * 1.05).toFixed(4));
+                    this.setAutoSpeedZone('challenge');
+                }
+                break;
+
+            case 'challenge':
+                // Drop back to Base if accuracy < 60%
+                if (enoughData && acc < this.AUTO_SPEED_DROP_THRESHOLD) {
+                    this.setAutoSpeedZone('base');
+                }
+                // Challenge is brief — after random target words, return to Base for recovery
+                else if (this.autoSpeedWordsInZone >= this.autoSpeedChallengeTarget) {
+                    this.setAutoSpeedZone('base');
+                }
+                break;
         }
     }
 
@@ -377,6 +398,13 @@ export class MindDojo {
 
         this.database = new SavedWordDB()
         this.loadGameSound()
+
+        // Restore auto speed zone on reload
+        if (this.settings.autoSpeed && this.settings.autoSpeedBase > 0) {
+            this.autoSpeedZone = 'base'
+            this.settings.speed = this.settings.autoSpeedBase
+        }
+
         this.pickNextWord()
         if (browser) {
             this.lettersAudio = initializeAudio()
@@ -587,13 +615,7 @@ export class MindDojo {
         if (!this.settings.autoSpeedBase || this.settings.autoSpeedBase <= 0) {
             this.settings.autoSpeedBase = this.settings.speed || 2;
         }
-        this.autoSpeedCycleIndex = 0;
-        this.autoSpeedWordsInZone = 0;
-        this.rollZoneTarget();
-        this.autoSpeedCycleCorrect = 0;
-        this.autoSpeedCycleTotal = 0;
-        this.autoSpeedZone = 'base';
-        this.settings.speed = this.settings.autoSpeedBase;
+        this.setAutoSpeedZone('base');
     }
 
     /** Disable auto speed — return to manual control */
