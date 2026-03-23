@@ -13,6 +13,7 @@
 	const numberModes = ['smart', 'random'] as const;
 
 	let activeTab: 'core' | 'audio' | 'ui' | 'theme' = $state('core');
+	let advancedMode = $state(false);
 
 	const tabs = [
 		{ key: 'core' as const, label: 'Core', icon: '&#9889;' },
@@ -40,19 +41,30 @@
 	}
 </script>
 
-<!-- Tab bar -->
-<div class="mb-6 flex gap-1 rounded-lg bg-surface-hover p-1">
-	{#each tabs as tab}
-		<button
-			onclick={() => (activeTab = tab.key)}
-			class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-all {activeTab === tab.key
-				? 'bg-accent text-black shadow-lg shadow-accent/20'
-				: 'text-base-text-muted hover:bg-surface-hover hover:text-accent'}"
-		>
-			<span class="text-base">{@html tab.icon}</span>
-			<span>{tab.label}</span>
-		</button>
-	{/each}
+<!-- Tab bar + simple/advanced -->
+<div class="mb-4 flex items-center gap-2">
+	<div class="flex flex-1 gap-1 rounded-lg bg-surface-hover p-1">
+		{#each tabs as tab}
+			{#if advancedMode || tab.key === 'core' || tab.key === 'theme'}
+				<button
+					onclick={() => (activeTab = tab.key)}
+					class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-all {activeTab === tab.key
+						? 'bg-accent text-black shadow-lg shadow-accent/20'
+						: 'text-base-text-muted hover:bg-surface-hover hover:text-accent'}"
+				>
+					<span class="text-base">{@html tab.icon}</span>
+					<span>{tab.label}</span>
+				</button>
+			{/if}
+		{/each}
+	</div>
+	<button
+		onclick={() => { advancedMode = !advancedMode; if (!advancedMode && activeTab !== 'core' && activeTab !== 'theme') activeTab = 'core'; }}
+		class="rounded-md px-2 py-2 text-[10px] font-bold transition-colors {advancedMode ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-accent'}"
+		title="{advancedMode ? 'Show fewer settings' : 'Show all settings'}"
+	>
+		{advancedMode ? 'Simple' : 'More'}
+	</button>
 </div>
 
 <div class="space-y-5">
@@ -180,6 +192,7 @@
 		</div>
 		{/if}
 
+		{#if advancedMode}
 		<!-- Same Letter Delay -->
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
 			<div class="mb-2 flex items-center justify-between">
@@ -192,6 +205,8 @@
 				class="w-full accent-accent"
 			/>
 		</div>
+
+		{/if}
 
 		<!-- Game Mode -->
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
@@ -303,6 +318,7 @@
 			</div>
 		</div>
 
+		{#if advancedMode}
 		<!-- Word Source -->
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
 			<span class="mb-3 block text-sm font-bold text-accent">Word Source</span>
@@ -405,6 +421,8 @@
 				{/each}
 			</div>
 		</div>
+
+	{/if}
 
 	<!-- AUDIO TAB -->
 	{:else if activeTab === 'audio'}
@@ -676,6 +694,20 @@
 				</div>
 				<label class="relative inline-flex cursor-pointer items-center">
 					<input type="checkbox" bind:checked={settings.zenMode} class="peer sr-only" />
+					<div class="peer h-5 w-9 rounded-full bg-surface-hover after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-base-text-muted after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full peer-checked:after:bg-black"></div>
+				</label>
+			</div>
+		</div>
+
+		<!-- Focus UI -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<div class="flex items-center justify-between">
+				<div>
+					<span class="text-sm font-bold text-accent">Focus UI</span>
+					<p class="mt-0.5 text-[10px] text-base-text-muted">Grayscale all stats and HUD. Info stays visible but quiet — nothing competes for your eyes. Hover to reveal colors.</p>
+				</div>
+				<label class="relative inline-flex cursor-pointer items-center">
+					<input type="checkbox" bind:checked={settings.focusUI} class="peer sr-only" />
 					<div class="peer h-5 w-9 rounded-full bg-surface-hover after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-base-text-muted after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full peer-checked:after:bg-black"></div>
 				</label>
 			</div>

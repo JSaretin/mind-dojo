@@ -644,7 +644,10 @@
 
 	<div class="relative min-h-screen w-full">
 		<!-- Top HUD -->
-		<div class="fixed top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2">
+		<div class="fixed top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2 {mindDojo.settings.focusUI ? 'grayscale opacity-40' : ''}" style="{mindDojo.settings.focusUI ? 'transition: filter 0.3s, opacity 0.3s;' : ''}"
+			onmouseenter={(e) => { if (mindDojo?.settings.focusUI) { (e.currentTarget as HTMLElement).style.filter = 'none'; (e.currentTarget as HTMLElement).style.opacity = '1'; } }}
+			onmouseleave={(e) => { if (mindDojo?.settings.focusUI) { (e.currentTarget as HTMLElement).style.filter = 'grayscale(1)'; (e.currentTarget as HTMLElement).style.opacity = '0.4'; } }}
+		>
 			{#if !mindDojo.settings.zenMode}
 			<!-- Belt, XP & Timer (left) -->
 			<div class="flex items-center gap-3">
@@ -864,7 +867,7 @@
 			{/if}
 
 			{#if !mindDojo.settings.hideProgressBar && !mindDojo.settings.zenMode}
-				<div class="absolute right-0 bottom-0 left-0">
+				<div class="absolute right-0 bottom-0 left-0 {mindDojo.settings.focusUI ? 'grayscale opacity-40' : ''}">
 					<ProgressBar />
 				</div>
 			{/if}

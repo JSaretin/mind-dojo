@@ -59,6 +59,7 @@ const defaultSetting: MindDojoSettings = {
     sessionDuration: 0,
     restDuration: 0,
     zenMode: false,
+    focusUI: false,
     lockedMinSpeed: 0,
     autoSpeed: false,
     autoSpeedBase: 0,
