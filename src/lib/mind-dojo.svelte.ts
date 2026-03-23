@@ -1397,6 +1397,12 @@ export class MindDojo {
         }
         pickedWord = tempWords[this.currentIndex];
         this.currentIndex++;
+        // Skip if same as current word (avoid consecutive duplicates)
+        if (pickedWord.word === this.currentWord?.word && tempWords.length > 1) {
+            if (this.currentIndex >= tempWords.length) this.currentIndex = 0;
+            pickedWord = tempWords[this.currentIndex];
+            this.currentIndex++;
+        }
         return pickedWord
     }
 

@@ -4,7 +4,13 @@
 	import { chartPrefs } from '$lib/chartPrefs.svelte';
 	import { getBaseStyle } from '$lib/style';
 	import RenderWord from './render_word/Word.svelte';
+	import { setContext, getContext } from 'svelte';
 	import * as echarts from 'echarts';
+
+	// Override settings context for replay — Letter component reads from this
+	const originalSettingsGetter: () => MindDojoSettings | undefined = getContext('settings');
+	let replaySettingsOverride: MindDojoSettings | null = $state(null);
+	setContext('settings', () => replaySettingsOverride || originalSettingsGetter?.());
 
 	let {
 		words,
@@ -819,6 +825,7 @@
 	let sessionReplayHideRef = $state(false);
 	let sessionReplayMode: 'as-typed' | 'left-to-right' | 'center' = $state('as-typed');
 	let sessionReplayShowFuture = $state(false);
+	let sessionReplayShowPast = $state(true);
 
 	// Build replay settings and word object for RenderWord
 	let replaySettings = $derived.by((): MindDojoSettings | null => {
@@ -831,14 +838,22 @@
 			? (flow.direction || 'left-to-right')
 			: sessionReplayMode;
 
+		const base = originalSettingsGetter?.() || {} as MindDojoSettings;
+		const effectiveDir = (mode === 'full-word' ? 'left-to-right' : dir) as 'left-to-right' | 'center';
+		// Future ON with left-to-right: show untyped letters (use full-word rendering for untyped visibility)
+		// Future OFF: letter-by-letter hides untyped, center shows only current
+		const useFullWordRendering = mode === 'full-word' || (sessionReplayShowFuture && effectiveDir === 'left-to-right');
 		return {
-			displayMode: mode === 'full-word' ? 'full-word' : 'letter-by-letter',
+			...base,
+			displayMode: useFullWordRendering ? 'full-word' : 'letter-by-letter',
 			letterStyle: {
 				randomSize: false, randomWeight: false, randomFont: false,
 				randomTransform: false, randomColor: false,
-				letterDisplayDirection: mode === 'full-word' ? 'left-to-right' : dir as 'left-to-right' | 'center',
+				letterDisplayDirection: effectiveDir,
 			},
-			hideTypedLetter: mode === 'letter-by-letter' && !sessionReplayShowFuture,
+			hideTypedLetter: !sessionReplayShowPast,
+			joinRandomLetters: true, // suppress WordMeaning popup in replay
+			displayLetterInUpperCase: base?.displayLetterInUpperCase || false,
 		} as MindDojoSettings;
 	});
 
@@ -873,11 +888,21 @@
 		sessionReplayLetterIdx = 0;
 		sessionReplayPaused = false;
 		sessionReplayStats = { correct: 0, errors: 0, combo: 0, bestCombo: 0 };
+		updateReplaySettingsOverride();
 		playNextWord();
+	}
+
+	function updateReplaySettingsOverride() {
+		if (!sessionReplayActive || !replaySettings) {
+			replaySettingsOverride = null;
+			return;
+		}
+		replaySettingsOverride = replaySettings;
 	}
 
 	function playNextWord() {
 		if (sessionReplayIdx >= sessionReplayFlows.length || sessionReplayPaused) return;
+		updateReplaySettingsOverride();
 		const wf = sessionReplayFlows[sessionReplayIdx];
 		const flow = wf.flow;
 		sessionReplayLetterIdx = 0;
@@ -931,6 +956,7 @@
 		sessionReplayTimers = [];
 		sessionReplayActive = false;
 		sessionReplayPaused = false;
+		replaySettingsOverride = null;
 	}
 
 	function toggleSessionReplayPause() {
@@ -957,6 +983,7 @@
 		sessionReplayIdx = idx;
 		sessionReplayLetterIdx = 0;
 		sessionReplayPaused = false;
+		updateReplaySettingsOverride();
 		playNextWord();
 	}
 
@@ -3027,7 +3054,12 @@
 						class="rounded px-1.5 py-0.5 text-[10px] {sessionReplayHideRef ? 'text-base-text-muted hover:text-base-text' : 'bg-surface-hover text-accent'}"
 						title="Toggle word reference"
 					>Ref</button>
-					<!-- Show future letters -->
+					<!-- Past/Future toggles -->
+					<button
+						onclick={() => sessionReplayShowPast = !sessionReplayShowPast}
+						class="rounded px-1.5 py-0.5 text-[10px] {sessionReplayShowPast ? 'bg-surface-hover text-accent' : 'text-base-text-muted hover:text-base-text'}"
+						title="Show/hide typed letters"
+					>Past</button>
 					<button
 						onclick={() => sessionReplayShowFuture = !sessionReplayShowFuture}
 						class="rounded px-1.5 py-0.5 text-[10px] {sessionReplayShowFuture ? 'bg-surface-hover text-accent' : 'text-base-text-muted hover:text-base-text'}"

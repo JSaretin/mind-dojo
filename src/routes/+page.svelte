@@ -12,7 +12,9 @@
 	import { Journal } from '$lib/journal.svelte';
 	import { applyTheme, loadTheme } from '$lib/theme';
 	import { loadWords } from '$lib/words';
-	import type { SavedWord } from '$lib/structure';
+	import type { SavedWord, TypingFlow } from '$lib/structure';
+	import { isInstantFail, getErrorType } from '$lib/structure';
+	import { getBaseStyle } from '$lib/style';
 	import { setContext } from 'svelte';
 
 	// App states
@@ -25,6 +27,225 @@
 	let journal = new Journal();
 	if (browser) journal.init();
 
+	// ── HOME REPLAY ──
+	interface ReplayFlow { word: string; flow: TypingFlow; }
+	interface ReplaySession { index: number; startTime: string; wordCount: number; accuracy: number; flows: ReplayFlow[]; }
+
+	let homeReplayActive = $state(false);
+	let homeReplayDays: string[] = $state([]);
+	let homeReplayDay = $state('');
+	let homeReplaySessions: ReplaySession[] = $state([]);
+	let homeReplaySessionIdx = $state(0);
+	let homeReplayWordIdx = $state(0);
+	let homeReplayLetterIdx = $state(0);
+	let homeReplaySpeed = $state(1);
+	let homeReplayPaused = $state(false);
+	let homeReplayTimers: ReturnType<typeof setTimeout>[] = [];
+	let homeReplayStats = $state({ correct: 0, errors: 0, combo: 0, bestCombo: 0 });
+	let homeReplayFlash: 'success' | 'error' | '' = $state('');
+	let homeReplayShowPast = $state(true);
+	let homeReplayShowFuture = $state(false);
+	let homeReplayShowRef = $state(true);
+	let homeReplayMode: 'as-typed' | 'left-to-right' | 'center' = $state('as-typed');
+	let homeReplayAutoNext = $state(true);
+	let homeReplayShowChart = $state(false);
+	let homeReplayChartType: 'bar' | 'line' | 'dot' = $state('bar');
+	let homeReplayShowSessionChart = $state(false);
+	let homeReplaySessionChartType: 'bar' | 'line' = $state('bar');
+
+	async function openHomeReplay() {
+		if (!mindDojo) return;
+		const allWords = await mindDojo.database.getAllWords();
+		// Extract days
+		const daySet = new Set<string>();
+		for (const w of allWords) {
+			for (const f of (w.typingFlows || [])) {
+				const d = new Date(f.timestamp);
+				daySet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+			}
+		}
+		homeReplayDays = [...daySet].sort().reverse();
+		if (homeReplayDays.length === 0) return;
+		homeReplayDay = homeReplayDays[0]; // today or latest
+		await loadHomeReplayDay(allWords);
+		homeReplayActive = true;
+		// Auto-start latest session
+		if (homeReplaySessions.length > 0) {
+			startHomeReplaySession(0);
+		}
+	}
+
+	async function loadHomeReplayDay(allWords?: SavedWord[]) {
+		if (!mindDojo) return;
+		const words = allWords || await mindDojo.database.getAllWords();
+		const flows: ReplayFlow[] = [];
+		for (const w of words) {
+			for (const f of (w.typingFlows || [])) {
+				if (isInstantFail(f)) continue;
+				const d = new Date(f.timestamp);
+				const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+				if (key === homeReplayDay) {
+					flows.push({ word: w.word.word, flow: f });
+				}
+			}
+		}
+		flows.sort((a, b) => a.flow.timestamp - b.flow.timestamp);
+		// Deduplicate by timestamp (same flow can appear if word data is duplicated)
+		const seen = new Set<number>();
+		const deduped = flows.filter(f => {
+			if (seen.has(f.flow.timestamp)) return false;
+			seen.add(f.flow.timestamp);
+			return true;
+		});
+		const uniqueFlows = deduped;
+
+		// Split into sessions (5min gap or mode change)
+		const sessions: ReplaySession[] = [];
+		let chunk: ReplayFlow[] = [];
+		for (let i = 0; i < uniqueFlows.length; i++) {
+			if (i > 0) {
+				const gap = uniqueFlows[i].flow.timestamp - uniqueFlows[i-1].flow.timestamp;
+				const modeChanged = (uniqueFlows[i].flow.mode || 'letter-by-letter') !== (uniqueFlows[i-1].flow.mode || 'letter-by-letter');
+				if (gap > 300000 || modeChanged) {
+					if (chunk.length > 0) sessions.push(buildReplaySession(sessions.length, chunk));
+					chunk = [];
+				}
+			}
+			chunk.push(uniqueFlows[i]);
+		}
+		if (chunk.length > 0) sessions.push(buildReplaySession(sessions.length, chunk));
+		homeReplaySessions = sessions;
+	}
+
+	function buildReplaySession(idx: number, flows: ReplayFlow[]): ReplaySession {
+		const correct = flows.filter(f => f.flow.correct).length;
+		const t = new Date(flows[0].flow.timestamp);
+		return {
+			index: idx + 1,
+			startTime: t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+			wordCount: flows.length,
+			accuracy: flows.length > 0 ? Math.round((correct / flows.length) * 100) : 0,
+			flows,
+		};
+	}
+
+	function startHomeReplaySession(sessIdx: number) {
+		stopHomeReplay();
+		homeReplaySessionIdx = sessIdx;
+		homeReplayWordIdx = 0;
+		homeReplayLetterIdx = 0;
+		homeReplayPaused = false;
+		homeReplayStats = { correct: 0, errors: 0, combo: 0, bestCombo: 0 };
+		playHomeReplayWord();
+	}
+
+	function playHomeReplayWord() {
+		const sess = homeReplaySessions[homeReplaySessionIdx];
+		if (!sess || homeReplayWordIdx >= sess.flows.length || homeReplayPaused) return;
+		const rf = sess.flows[homeReplayWordIdx];
+		homeReplayLetterIdx = 0;
+
+		const speedFactor = homeReplaySpeed;
+		const reaction = rf.flow.reactionTime || 500;
+		let cumulative = reaction / speedFactor;
+
+		homeReplayTimers.push(setTimeout(() => { homeReplayLetterIdx = 1; }, cumulative));
+
+		for (let i = 1; i < rf.flow.letterIntervals.length; i++) {
+			cumulative += (rf.flow.letterIntervals[i] || 0) / speedFactor;
+			const idx = i + 1;
+			homeReplayTimers.push(setTimeout(() => { homeReplayLetterIdx = idx; }, cumulative));
+		}
+
+		cumulative += 200 / speedFactor;
+		homeReplayTimers.push(setTimeout(() => {
+			homeReplayFlash = rf.flow.correct ? 'success' : 'error';
+			setTimeout(() => { homeReplayFlash = ''; }, 300 / speedFactor);
+			if (rf.flow.correct) {
+				homeReplayStats.correct++; homeReplayStats.combo++;
+				if (homeReplayStats.combo > homeReplayStats.bestCombo) homeReplayStats.bestCombo = homeReplayStats.combo;
+			} else {
+				homeReplayStats.errors++; homeReplayStats.combo = 0;
+			}
+			homeReplayStats = homeReplayStats;
+		}, cumulative));
+
+		cumulative += 500 / speedFactor;
+		homeReplayTimers.push(setTimeout(() => {
+			homeReplayWordIdx++;
+			if (homeReplayWordIdx < sess.flows.length && !homeReplayPaused) {
+				playHomeReplayWord();
+			} else if (homeReplayAutoNext && homeReplaySessionIdx + 1 < homeReplaySessions.length) {
+				// Auto-advance to next session
+				setTimeout(() => startHomeReplaySession(homeReplaySessionIdx + 1), 1000 / speedFactor);
+			}
+		}, cumulative));
+	}
+
+	function stopHomeReplay() {
+		for (const t of homeReplayTimers) clearTimeout(t);
+		homeReplayTimers = [];
+	}
+
+	function closeHomeReplay() {
+		stopHomeReplay();
+		homeReplayActive = false;
+	}
+
+	function toggleHomeReplayPause() {
+		if (homeReplayPaused) { homeReplayPaused = false; playHomeReplayWord(); }
+		else { homeReplayPaused = true; stopHomeReplay(); }
+	}
+
+	function skipHomeReplayTo(wordIdx: number) {
+		stopHomeReplay();
+		const sess = homeReplaySessions[homeReplaySessionIdx];
+		if (!sess) return;
+		let c = 0, e = 0, combo = 0, best = 0;
+		for (let i = 0; i < wordIdx; i++) {
+			if (sess.flows[i].flow.correct) { c++; combo++; if (combo > best) best = combo; } else { e++; combo = 0; }
+		}
+		homeReplayStats = { correct: c, errors: e, combo, bestCombo: best };
+		homeReplayWordIdx = wordIdx;
+		homeReplayLetterIdx = 0;
+		homeReplayPaused = false;
+		playHomeReplayWord();
+	}
+
+	// Derive replay rendering props
+	let homeReplayCurrentFlow = $derived.by(() => {
+		const sess = homeReplaySessions[homeReplaySessionIdx];
+		if (!sess || homeReplayWordIdx >= sess.flows.length) return null;
+		return sess.flows[homeReplayWordIdx];
+	});
+
+	let homeReplayRenderSettings = $derived.by(() => {
+		if (!homeReplayCurrentFlow || !mindDojo) return null;
+		const flow = homeReplayCurrentFlow.flow;
+		const mode = flow.mode || 'letter-by-letter';
+		const dir = (homeReplayMode === 'as-typed' ? (flow.direction || 'left-to-right') : homeReplayMode) as 'left-to-right' | 'center';
+		const useFullWord = mode === 'full-word' || (homeReplayShowFuture && dir === 'left-to-right');
+		return {
+			...mindDojo.settings,
+			displayMode: useFullWord ? 'full-word' : 'letter-by-letter',
+			letterStyle: { randomSize: false, randomWeight: false, randomFont: false, randomTransform: false, randomColor: false, letterDisplayDirection: dir },
+			hideTypedLetter: !homeReplayShowPast,
+			joinRandomLetters: true, // suppress WordMeaning popup in replay
+		} as any;
+	});
+
+	let homeReplayWord = $derived.by(() => {
+		if (!homeReplayCurrentFlow) return null;
+		return { word: homeReplayCurrentFlow.word, meanings: [], synonyms: [], antonyms: [] };
+	});
+
+	let homeReplayTyped = $derived(homeReplayCurrentFlow ? homeReplayCurrentFlow.word.slice(0, homeReplayLetterIdx) : '');
+
+	let homeReplayStyles = $derived.by(() => {
+		if (!homeReplayCurrentFlow || !homeReplayRenderSettings) return [];
+		return homeReplayCurrentFlow.word.split('').map(l => getBaseStyle(l, homeReplayRenderSettings));
+	});
+
 	// Apply saved theme on load
 	if (browser) applyTheme(loadTheme());
 	let mindDojo: MindDojo | null = $state(null);
@@ -32,7 +253,7 @@
 
 	// Set contexts synchronously (required by Svelte) — getter functions read from reactive state
 	setContext('mindDojo', () => mindDojo);
-	setContext('settings', () => mindDojo?.settings);
+	setContext('settings', () => (homeReplayActive && homeReplayRenderSettings) ? homeReplayRenderSettings : mindDojo?.settings);
 
 	// Load words async, then initialize MindDojo
 	if (browser) {
@@ -510,17 +731,15 @@
 						x{(1 + Math.floor(mindDojo.combo / 5) * 0.5).toFixed(1)}
 					</span>
 				{/if}
-				<!-- Replay (opens stats) -->
-				{#if mindDojo.sessionTimeline.length > 3}
-					<button
-						onclick={async () => { await loadSavedWords(); showWordBank = true; }}
-						class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
-						title="Session replay & stats"
-						aria-label="Session replay"
-					>
-						<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-					</button>
-				{/if}
+				<!-- Replay -->
+				<button
+					onclick={openHomeReplay}
+					class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+					title="Session replay"
+					aria-label="Session replay"
+				>
+					<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+				</button>
 				<!-- Journal -->
 				<button
 					onclick={toggleJournal}
@@ -764,6 +983,274 @@
 			<div class="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-base-text-muted select-none">
 				Ctrl+S settings &middot; Ctrl+H words &middot; Ctrl+J journal &middot; ? help
 			</div>
+			{/if}
+		</div>
+	</div>
+{/if}
+
+<!-- HOME REPLAY OVERLAY -->
+{#if homeReplayActive && mindDojo}
+	{@const sess = homeReplaySessions[homeReplaySessionIdx]}
+	{@const totalWords = sess?.flows.length || 0}
+	{@const accuracy = homeReplayStats.correct + homeReplayStats.errors > 0 ? Math.round((homeReplayStats.correct / (homeReplayStats.correct + homeReplayStats.errors)) * 100) : 100}
+	{@const errType = homeReplayCurrentFlow && !homeReplayCurrentFlow.flow.correct ? getErrorType(homeReplayCurrentFlow.flow) : null}
+	<div class="fixed inset-0 z-[80] flex flex-col bg-base">
+		<!-- Flash -->
+		{#if homeReplayFlash}
+			<div class="pointer-events-none fixed inset-0 z-[90] {homeReplayFlash === 'success' ? 'flash-success' : 'flash-error'}"></div>
+		{/if}
+
+		<!-- Top bar -->
+		<div class="flex items-center justify-between border-b border-base-border px-4 py-2">
+			<div class="flex items-center gap-3">
+				<!-- Day picker -->
+				<select
+					bind:value={homeReplayDay}
+					onchange={async () => { await loadHomeReplayDay(); if (homeReplaySessions.length > 0) startHomeReplaySession(0); }}
+					class="rounded border border-base-border bg-surface-hover px-2 py-1 text-xs text-base-text focus:border-accent focus:outline-none"
+				>
+					{#each homeReplayDays as day}
+						{@const d = new Date(day + 'T00:00:00')}
+						<option value={day}>{d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</option>
+					{/each}
+				</select>
+				<!-- Session picker -->
+				<select
+					value={String(homeReplaySessionIdx)}
+					onchange={(e) => startHomeReplaySession(parseInt((e.target as HTMLSelectElement).value))}
+					class="rounded border border-base-border bg-surface-hover px-2 py-1 text-xs text-base-text focus:border-accent focus:outline-none"
+				>
+					{#each homeReplaySessions as s, i}
+						<option value={String(i)}>S{s.index}: {s.startTime} ({s.wordCount}w, {s.accuracy}%)</option>
+					{/each}
+				</select>
+				<span class="text-xs text-base-text-muted">{homeReplayWordIdx + 1}/{totalWords}</span>
+			</div>
+			<div class="flex items-center gap-1.5">
+				{#each [0.25, 0.5, 1, 2, 5] as speed}
+					<button
+						onclick={() => { homeReplaySpeed = speed; if (!homeReplayPaused) { stopHomeReplay(); playHomeReplayWord(); } }}
+						class="rounded px-1.5 py-0.5 text-[10px] font-mono {homeReplaySpeed === speed ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
+					>{speed}x</button>
+				{/each}
+				<span class="mx-0.5 h-4 w-px bg-base-border"></span>
+				<select bind:value={homeReplayMode} class="rounded border border-base-border bg-surface-hover px-1.5 py-0.5 text-[10px] text-base-text focus:outline-none">
+					<option value="as-typed">As typed</option>
+					<option value="center">Center</option>
+					<option value="left-to-right">L→R</option>
+				</select>
+				<button onclick={() => homeReplayShowPast = !homeReplayShowPast} class="rounded px-1.5 py-0.5 text-[10px] {homeReplayShowPast ? 'bg-surface-hover text-accent' : 'text-base-text-muted'}">Past</button>
+				<button onclick={() => homeReplayShowFuture = !homeReplayShowFuture} class="rounded px-1.5 py-0.5 text-[10px] {homeReplayShowFuture ? 'bg-surface-hover text-accent' : 'text-base-text-muted'}">Future</button>
+				<button onclick={() => homeReplayShowRef = !homeReplayShowRef} class="rounded px-1.5 py-0.5 text-[10px] {homeReplayShowRef ? 'bg-surface-hover text-accent' : 'text-base-text-muted'}">Ref</button>
+				<button onclick={() => homeReplayAutoNext = !homeReplayAutoNext} class="rounded px-1.5 py-0.5 text-[10px] {homeReplayAutoNext ? 'bg-surface-hover text-accent' : 'text-base-text-muted'}" title="Auto-play next session">Auto</button>
+				<button onclick={() => homeReplayShowSessionChart = !homeReplayShowSessionChart} class="rounded px-1.5 py-0.5 text-[10px] {homeReplayShowSessionChart ? 'bg-surface-hover text-accent' : 'text-base-text-muted'}" title="Session accuracy chart">Session</button>
+				{#if homeReplayShowSessionChart}
+					<button onclick={() => homeReplaySessionChartType = homeReplaySessionChartType === 'bar' ? 'line' : 'bar'} class="rounded px-1.5 py-0.5 text-[9px] font-mono text-base-text-muted hover:text-accent">{homeReplaySessionChartType}</button>
+				{/if}
+				<button onclick={() => homeReplayShowChart = !homeReplayShowChart} class="rounded px-1.5 py-0.5 text-[10px] {homeReplayShowChart ? 'bg-surface-hover text-accent' : 'text-base-text-muted'}" title="Show live keystroke chart">Chart</button>
+				{#if homeReplayShowChart}
+					<button onclick={() => homeReplayChartType = homeReplayChartType === 'bar' ? 'line' : homeReplayChartType === 'line' ? 'dot' : 'bar'} class="rounded px-1.5 py-0.5 text-[9px] font-mono text-base-text-muted hover:text-accent">{homeReplayChartType}</button>
+				{/if}
+				<span class="mx-0.5 h-4 w-px bg-base-border"></span>
+				<button onclick={toggleHomeReplayPause} class="rounded px-2 py-0.5 text-[10px] font-bold {homeReplayPaused ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}">{homeReplayPaused ? 'Resume' : 'Pause'}</button>
+				<button onclick={closeHomeReplay} class="rounded px-2 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400">Close</button>
+			</div>
+		</div>
+
+		<!-- Stats -->
+		<div class="flex items-center justify-center gap-6 border-b border-base-border py-2 text-xs">
+			<span class="text-green-400 font-bold">{homeReplayStats.correct}</span>
+			<span class="text-base-text-muted">/</span>
+			<span class="text-red-400 font-bold">{homeReplayStats.errors}</span>
+			<span class="{accuracy >= 60 ? 'text-green-400' : 'text-red-400'} font-bold">{accuracy}%</span>
+			{#if homeReplayStats.combo > 0}
+				<span class="text-accent font-bold">{homeReplayStats.combo} combo</span>
+			{/if}
+			{#if homeReplayCurrentFlow?.flow.speed}
+				<span class="text-base-text-muted">{homeReplayCurrentFlow.flow.speed.toFixed(2)}x</span>
+			{/if}
+		</div>
+
+		<!-- Main area -->
+		<div class="flex flex-1 items-center justify-center">
+			{#if homeReplayWord && homeReplayRenderSettings}
+				<div class="flex flex-col items-center gap-4">
+					<RenderWord
+						word={homeReplayWord}
+						typedWord={homeReplayTyped}
+						settings={homeReplayRenderSettings}
+						baseStyles={homeReplayStyles}
+						wordTransform=""
+					/>
+					{#if homeReplayShowRef}
+						<div class="text-sm text-base-text-muted/30">{homeReplayCurrentFlow?.word}</div>
+					{/if}
+
+					<!-- Live keystroke chart -->
+					{#if homeReplayShowChart && homeReplayCurrentFlow}
+						{@const flow = homeReplayCurrentFlow.flow}
+						{@const reaction = flow.reactionTime || 0}
+						{@const interKeys = flow.letterIntervals.slice(1).filter(v => v > 0)}
+						{@const chartData = [reaction, ...interKeys]}
+						{@const maxInterval = chartData.length > 0 ? Math.max(...chartData, 1) : 1}
+						{@const visibleCount = homeReplayLetterIdx}
+						{@const typedData = chartData.slice(0, visibleCount)}
+						{@const avg = typedData.length > 0 ? Math.round(typedData.reduce((a, b) => a + b, 0) / typedData.length) : 0}
+						<div class="mt-4 w-72">
+							{#if homeReplayChartType === 'bar'}
+								<div class="flex items-end gap-px" style="height: 48px;">
+									{#each chartData as val, i}
+										{@const visible = i < visibleCount}
+										{@const h = visible ? Math.max((val / maxInterval) * 48, 2) : 2}
+										{@const isFirst = i === 0}
+										<div
+											class="flex-1 min-w-[3px] rounded-t-sm transition-all duration-100 {
+												!visible ? 'bg-base-border/20' :
+												isFirst ? 'bg-purple-500/70' :
+												val > maxInterval * 0.7 ? 'bg-amber-500/70' :
+												val < maxInterval * 0.3 ? 'bg-cyan-500/70' :
+												'bg-green-500/50'
+											}"
+											style="height: {h}px;"
+										></div>
+									{/each}
+								</div>
+							{:else if homeReplayChartType === 'line'}
+								{@const totalW = chartData.length * 10}
+								<svg width="100%" viewBox="0 0 {totalW} 48" style="height: 48px;">
+									{#each chartData as val, i}
+										{@const visible = i < visibleCount}
+										{@const spacing = chartData.length > 1 ? (totalW - 10) / (chartData.length - 1) : 0}
+										{@const x = i * spacing + 5}
+										{@const y = visible ? 48 - (val / maxInterval) * 44 - 2 : 46}
+										{#if visible && i > 0 && i - 1 < visibleCount}
+											{@const px = (i - 1) * spacing + 5}
+											{@const py = 48 - (chartData[i - 1] / maxInterval) * 44 - 2}
+											<line x1={px} y1={py} x2={x} y2={y} stroke="#06b6d4" stroke-width="1.5" opacity="0.6" />
+										{/if}
+										{#if visible}
+											<circle cx={x} cy={y} r="2.5" fill="{i === 0 ? '#a855f7' : val > maxInterval * 0.7 ? '#f59e0b' : val < maxInterval * 0.3 ? '#06b6d4' : '#22c55e'}" opacity="0.8" />
+										{:else}
+											<circle cx={x} cy="46" r="1" fill="#374151" opacity="0.3" />
+										{/if}
+									{/each}
+								</svg>
+							{:else}
+								<div class="flex items-end gap-px" style="height: 48px;">
+									{#each chartData as val, i}
+										{@const visible = i < visibleCount}
+										{@const y = visible ? Math.max((val / maxInterval) * 44, 4) : 0}
+										<div class="flex-1 flex items-end justify-center" style="height: 48px;">
+											{#if visible}
+												<div
+													class="h-2 w-2 rounded-full {
+														i === 0 ? 'bg-purple-500' :
+														val > maxInterval * 0.7 ? 'bg-amber-500' :
+														val < maxInterval * 0.3 ? 'bg-cyan-500' :
+														'bg-green-500'
+													}"
+													style="margin-bottom: {y}px; opacity: 0.7;"
+												></div>
+											{:else}
+												<div class="h-1 w-1 rounded-full bg-base-border/30" style="margin-bottom: 0;"></div>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
+							<div class="mt-0.5 text-center text-[8px] text-base-text-muted/30">
+								{#if typedData.length > 0}avg {avg}ms{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{:else if sess && homeReplayWordIdx >= sess.flows.length}
+				<div class="text-center">
+					<div class="text-2xl font-bold text-accent mb-2">Replay Complete</div>
+					<div class="text-sm text-base-text-muted">{homeReplayStats.correct} correct, {homeReplayStats.errors} errors, {accuracy}%</div>
+					<div class="mt-2 text-sm text-base-text-muted">Best combo: {homeReplayStats.bestCombo}</div>
+				</div>
+			{:else}
+				<div class="text-sm text-base-text-muted">No session data</div>
+			{/if}
+		</div>
+
+		<!-- Session accuracy chart -->
+		{#if homeReplayShowSessionChart && sess}
+			{@const windowSize = 5}
+			{@const accPoints = sess.flows.map((_, i) => {
+				const ws = Math.max(0, i - windowSize + 1);
+				const w = sess.flows.slice(ws, i + 1);
+				return Math.round(w.filter(f => f.flow.correct).length / w.length * 100);
+			})}
+			<div class="border-t border-base-border px-4 pt-2">
+				{#if homeReplaySessionChartType === 'bar'}
+					<div class="flex items-end gap-px" style="height: 32px;">
+						{#each accPoints as acc, i}
+							{@const played = i < homeReplayWordIdx}
+							{@const current = i === homeReplayWordIdx}
+							{@const visible = played || current}
+							{@const h = visible ? Math.max((acc / 100) * 32, 1) : 1}
+							<div
+								class="flex-1 min-w-[2px] rounded-t-sm {current ? 'ring-1 ring-accent' : ''} {
+									!visible ? 'bg-base-border/10' :
+									acc >= 80 ? 'bg-green-500/60' :
+									acc >= 60 ? 'bg-cyan-500/50' :
+									acc >= 40 ? 'bg-amber-500/50' :
+									'bg-red-500/50'
+								}"
+								style="height: {h}px;"
+								title="Word {i + 1}: {acc}%"
+							></div>
+						{/each}
+					</div>
+				{:else}
+					{@const totalW = accPoints.length * 6}
+					<svg width="100%" viewBox="0 0 {totalW} 32" style="height: 32px;" preserveAspectRatio="none">
+						<!-- 80% and 60% reference lines -->
+						<line x1="0" y1={32 - 0.8 * 30 - 1} x2={totalW} y2={32 - 0.8 * 30 - 1} stroke="#22c55e" stroke-width="0.5" opacity="0.2" stroke-dasharray="4 2" />
+						<line x1="0" y1={32 - 0.6 * 30 - 1} x2={totalW} y2={32 - 0.6 * 30 - 1} stroke="#f59e0b" stroke-width="0.5" opacity="0.2" stroke-dasharray="4 2" />
+						{#each accPoints as acc, i}
+							{@const visible = i <= homeReplayWordIdx}
+							{@const spacing = accPoints.length > 1 ? (totalW - 4) / (accPoints.length - 1) : 0}
+							{@const x = i * spacing + 2}
+							{@const y = visible ? 32 - (acc / 100) * 30 - 1 : 31}
+							{#if visible && i > 0 && i - 1 <= homeReplayWordIdx}
+								{@const px = (i - 1) * spacing + 2}
+								{@const py = 32 - (accPoints[i - 1] / 100) * 30 - 1}
+								<line x1={px} y1={py} x2={x} y2={y} stroke="{acc >= 80 ? '#22c55e' : acc >= 60 ? '#06b6d4' : acc >= 40 ? '#f59e0b' : '#ef4444'}" stroke-width="1.5" opacity="0.6" />
+							{/if}
+							{#if visible}
+								<circle cx={x} cy={y} r="{i === homeReplayWordIdx ? 3 : 1.5}" fill="{acc >= 80 ? '#22c55e' : acc >= 60 ? '#06b6d4' : acc >= 40 ? '#f59e0b' : '#ef4444'}" opacity="{i === homeReplayWordIdx ? 1 : 0.7}" />
+							{/if}
+						{/each}
+					</svg>
+				{/if}
+				<div class="flex justify-between text-[7px] text-base-text-muted/30 mt-0.5">
+					<span>0%</span>
+					<span>rolling {windowSize}-word accuracy</span>
+					<span>100%</span>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Timeline -->
+		<div class="border-t border-base-border px-4 py-3">
+			<div class="mb-2 flex items-center justify-center gap-2">
+				<button onclick={() => skipHomeReplayTo(Math.max(0, homeReplayWordIdx - 1))} class="rounded px-2 py-0.5 text-[10px] text-base-text-muted hover:text-base-text">Prev</button>
+				<button onclick={() => { for (let i = homeReplayWordIdx + 1; i < totalWords; i++) { if (!sess?.flows[i].flow.correct) { skipHomeReplayTo(i); return; } } }} class="rounded px-2 py-0.5 text-[10px] text-red-400 hover:text-red-300">Next Error</button>
+				<button onclick={() => skipHomeReplayTo(Math.min(totalWords - 1, homeReplayWordIdx + 1))} class="rounded px-2 py-0.5 text-[10px] text-base-text-muted hover:text-base-text">Next</button>
+			</div>
+			{#if sess}
+				<div class="flex h-4 w-full gap-px overflow-hidden rounded">
+					{#each sess.flows as f, i}
+						<button
+							onclick={() => skipHomeReplayTo(i)}
+							class="h-full flex-1 min-w-[2px] transition-opacity {i === homeReplayWordIdx ? 'ring-1 ring-accent' : i < homeReplayWordIdx ? 'opacity-40' : ''} {f.flow.correct ? 'bg-green-500/60' : 'bg-red-500/60'}"
+							title="{f.word}"
+						></button>
+					{/each}
+				</div>
 			{/if}
 		</div>
 	</div>

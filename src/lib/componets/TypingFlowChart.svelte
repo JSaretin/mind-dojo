@@ -22,6 +22,7 @@
 	let replayLetterIndex = $state(0);
 	let replaySpeed = $state(1);
 	let replayShowFuture = $state(false);
+	let replayShowPast = $state(true);
 	let replayTimers: ReturnType<typeof setTimeout>[] = [];
 
 	function startReplay() {
@@ -633,6 +634,10 @@
 				<!-- Speed controls at top -->
 				<div class="absolute top-2 right-2 flex items-center gap-1.5">
 					<button
+						onclick={() => replayShowPast = !replayShowPast}
+						class="rounded px-1.5 py-0.5 text-[9px] {replayShowPast ? 'bg-surface-hover text-accent' : 'text-base-text-muted hover:text-base-text'}"
+					>Past</button>
+					<button
 						onclick={() => replayShowFuture = !replayShowFuture}
 						class="rounded px-1.5 py-0.5 text-[9px] {replayShowFuture ? 'bg-surface-hover text-accent' : 'text-base-text-muted hover:text-base-text'}"
 					>Future</button>
@@ -660,13 +665,17 @@
 						{@const isHesitation = i > 0 && interval > avg + stdDev * 0.8}
 						{@const isRush = i > 0 && interval > 0 && interval < avg - stdDev * 0.5 && interval < avg * 0.6}
 						{@const isFuture = !typed && !current}
+						{@const isPast = typed && !current}
 						<div class="flex flex-col items-center transition-all duration-75">
 							{#if isFuture && !replayShowFuture}
 								<span class="h-9 flex items-center justify-center text-base-text-muted/5">·</span>
+							{:else if isPast && !replayShowPast}
+								<span class="h-9 flex items-center justify-center text-transparent">·</span>
 							{:else}
 								<span class="h-9 flex items-center justify-center {
-									!typed && !current ? (replayShowFuture ? 'text-base-text-muted/15' : 'text-base-text-muted/5') :
+									isFuture ? 'text-base-text-muted/15' :
 									current ? 'text-accent scale-125 font-black' :
+									isPast && !replayShowPast ? 'text-transparent' :
 									i === 0 ? 'text-purple-400' :
 									isHesitation ? 'text-amber-400' :
 									isRush ? 'text-cyan-400' :
@@ -675,9 +684,9 @@
 									{letter}
 								</span>
 							{/if}
-							{#if typed && i > 0 && interval > 0}
+							{#if typed && replayShowPast && i > 0 && interval > 0}
 								<span class="text-[8px] {isHesitation ? 'text-amber-400' : isRush ? 'text-cyan-400' : 'text-base-text-muted/40'}">{Math.round(interval)}</span>
-							{:else if typed && i === 0}
+							{:else if typed && replayShowPast && i === 0}
 								<span class="text-[8px] text-purple-400">{Math.round(getReactionTime(activeFlow || flows[0]))}</span>
 							{:else}
 								<span class="text-[8px] text-transparent">0</span>
