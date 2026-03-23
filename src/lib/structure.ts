@@ -22,6 +22,7 @@ export interface TypingFlow {
     speed?: number;            // speed setting when this attempt happened
     msPerLetter?: number;      // allowed ms per letter at this speed (1000 / speed)
     mode?: 'letter-by-letter' | 'full-word' | 'chaos'; // game mode when this attempt happened
+    direction?: 'left-to-right' | 'center'; // letter display direction when typed
     errorType?: 'self' | 'timer'; // what caused the error: wrong key (self) or time ran out (timer)
 }
 
@@ -134,12 +135,14 @@ export interface MindDojoSettings {
     lockedMinSpeed: number;  // commitment lock — cannot go below this speed
     autoSpeed: boolean;      // automatic speed cycling (base/flow/challenge)
     autoSpeedBase: number;   // base speed for auto mode (auto-calibrated)
+    savedManualSpeed: number; // manual speed saved when switching to auto
     autoFatigueRest: boolean; // auto-trigger rest when fatigue detected
     wordSource: 'dictionary' | 'seen' | 'unseen'; // word list source: full dictionary, previously seen, or never-seen-before
     breatheDelay: number; // ms to pause after error before next word (0 = off)
     breathePrompts: boolean; // show philosophy prompts during breathe
     breathePromptsAlways: boolean; // true = every breathe, false = ~60% random
     breatheCustomPrompts: string; // user custom prompts, one per line
+    warmupWords: number; // number of warmup words (0 = off, doesn't count toward stats)
     sessionGoalType: 'none' | 'words' | 'accuracy'; // session goal type
     sessionGoalValue: number; // target: word count or accuracy %
     // focusKeys: FocusKeys

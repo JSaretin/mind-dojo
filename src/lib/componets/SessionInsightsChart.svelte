@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { isInstantFail, getErrorType } from '$lib/structure';
-	import type { SavedWord, TypingFlow } from '$lib/structure';
+	import type { SavedWord, TypingFlow, MindDojoSettings } from '$lib/structure';
 	import { chartPrefs } from '$lib/chartPrefs.svelte';
+	import { getBaseStyle } from '$lib/style';
+	import RenderWord from './render_word/Word.svelte';
 	import * as echarts from 'echarts';
 
 	let {
@@ -802,6 +804,175 @@
 	let patternsChartEl: HTMLDivElement | undefined = $state();
 	let patternPopup: { type: 'flow' | 'spiral'; index: number } | null = $state(null);
 	let patternSessionFilter: number | null = $state(null); // null = all sessions
+
+	// ── SESSION REPLAY ──
+	let sessionReplayActive = $state(false);
+	let sessionReplayFlows: WordFlow[] = $state([]);
+	let sessionReplayIdx = $state(0);
+	let sessionReplayLetterIdx = $state(0);
+	let sessionReplaySpeed = $state(1);
+	let sessionReplayPaused = $state(false);
+	let sessionReplayTimers: ReturnType<typeof setTimeout>[] = [];
+	let sessionReplayStats = $state({ correct: 0, errors: 0, combo: 0, bestCombo: 0 });
+	let sessionReplayLabel = $state('');
+	let sessionReplayFlash: 'success' | 'error' | '' = $state('');
+	let sessionReplayHideRef = $state(false);
+	let sessionReplayMode: 'as-typed' | 'left-to-right' | 'center' = $state('as-typed');
+	let sessionReplayShowFuture = $state(false);
+
+	// Build replay settings and word object for RenderWord
+	let replaySettings = $derived.by((): MindDojoSettings | null => {
+		if (!sessionReplayActive) return null;
+		const wf = sessionReplayFlows[sessionReplayIdx];
+		if (!wf) return null;
+		const flow = wf.flow;
+		const mode = flow.mode || 'letter-by-letter';
+		const dir = sessionReplayMode === 'as-typed'
+			? (flow.direction || 'left-to-right')
+			: sessionReplayMode;
+
+		return {
+			displayMode: mode === 'full-word' ? 'full-word' : 'letter-by-letter',
+			letterStyle: {
+				randomSize: false, randomWeight: false, randomFont: false,
+				randomTransform: false, randomColor: false,
+				letterDisplayDirection: mode === 'full-word' ? 'left-to-right' : dir as 'left-to-right' | 'center',
+			},
+			hideTypedLetter: mode === 'letter-by-letter' && !sessionReplayShowFuture,
+		} as MindDojoSettings;
+	});
+
+	let replayWord = $derived.by(() => {
+		if (!sessionReplayActive) return null;
+		const wf = sessionReplayFlows[sessionReplayIdx];
+		if (!wf) return null;
+		return { word: wf.word, meanings: [], synonyms: [], antonyms: [] };
+	});
+
+	let replayTypedWord = $derived.by(() => {
+		if (!sessionReplayActive) return '';
+		const wf = sessionReplayFlows[sessionReplayIdx];
+		if (!wf) return '';
+		return wf.word.slice(0, sessionReplayLetterIdx);
+	});
+
+	let replayBaseStyles = $derived.by(() => {
+		if (!sessionReplayActive || !replaySettings) return [];
+		const wf = sessionReplayFlows[sessionReplayIdx];
+		if (!wf) return [];
+		return wf.word.split('').map(letter => getBaseStyle(letter, replaySettings!));
+	});
+
+	function startSessionReplay(flows: WordFlow[], label: string = '') {
+		stopSessionReplay();
+		if (flows.length === 0) return;
+		sessionReplayFlows = flows;
+		sessionReplayLabel = label;
+		sessionReplayActive = true;
+		sessionReplayIdx = 0;
+		sessionReplayLetterIdx = 0;
+		sessionReplayPaused = false;
+		sessionReplayStats = { correct: 0, errors: 0, combo: 0, bestCombo: 0 };
+		playNextWord();
+	}
+
+	function playNextWord() {
+		if (sessionReplayIdx >= sessionReplayFlows.length || sessionReplayPaused) return;
+		const wf = sessionReplayFlows[sessionReplayIdx];
+		const flow = wf.flow;
+		sessionReplayLetterIdx = 0;
+
+		const speedFactor = sessionReplaySpeed;
+		const reaction = flow.reactionTime || 500;
+
+		// Show reaction delay then animate letters
+		let cumulative = reaction / speedFactor;
+		sessionReplayTimers.push(setTimeout(() => {
+			sessionReplayLetterIdx = 1;
+		}, cumulative));
+
+		for (let i = 1; i < flow.letterIntervals.length; i++) {
+			cumulative += (flow.letterIntervals[i] || 0) / speedFactor;
+			const idx = i + 1;
+			sessionReplayTimers.push(setTimeout(() => {
+				sessionReplayLetterIdx = idx;
+			}, cumulative));
+		}
+
+		// After word completes — flash + update stats + next word
+		cumulative += 200 / speedFactor;
+		sessionReplayTimers.push(setTimeout(() => {
+			// Flash
+			sessionReplayFlash = flow.correct ? 'success' : 'error';
+			setTimeout(() => { sessionReplayFlash = ''; }, 300 / speedFactor);
+
+			if (flow.correct) {
+				sessionReplayStats.correct++;
+				sessionReplayStats.combo++;
+				if (sessionReplayStats.combo > sessionReplayStats.bestCombo) sessionReplayStats.bestCombo = sessionReplayStats.combo;
+			} else {
+				sessionReplayStats.errors++;
+				sessionReplayStats.combo = 0;
+			}
+			sessionReplayStats = sessionReplayStats;
+		}, cumulative));
+
+		cumulative += 500 / speedFactor;
+		sessionReplayTimers.push(setTimeout(() => {
+			sessionReplayIdx++;
+			if (sessionReplayIdx < sessionReplayFlows.length && !sessionReplayPaused) {
+				playNextWord();
+			}
+		}, cumulative));
+	}
+
+	function stopSessionReplay() {
+		for (const t of sessionReplayTimers) clearTimeout(t);
+		sessionReplayTimers = [];
+		sessionReplayActive = false;
+		sessionReplayPaused = false;
+	}
+
+	function toggleSessionReplayPause() {
+		if (sessionReplayPaused) {
+			sessionReplayPaused = false;
+			playNextWord();
+		} else {
+			sessionReplayPaused = true;
+			for (const t of sessionReplayTimers) clearTimeout(t);
+			sessionReplayTimers = [];
+		}
+	}
+
+	function skipToWord(idx: number) {
+		for (const t of sessionReplayTimers) clearTimeout(t);
+		sessionReplayTimers = [];
+		// Recompute stats up to this point
+		let correct = 0, errors = 0, combo = 0, bestCombo = 0;
+		for (let i = 0; i < idx; i++) {
+			if (sessionReplayFlows[i].flow.correct) { correct++; combo++; if (combo > bestCombo) bestCombo = combo; }
+			else { errors++; combo = 0; }
+		}
+		sessionReplayStats = { correct, errors, combo, bestCombo };
+		sessionReplayIdx = idx;
+		sessionReplayLetterIdx = 0;
+		sessionReplayPaused = false;
+		playNextWord();
+	}
+
+	function skipToNextError() {
+		for (let i = sessionReplayIdx + 1; i < sessionReplayFlows.length; i++) {
+			if (!sessionReplayFlows[i].flow.correct) { skipToWord(i); return; }
+		}
+	}
+
+	function skipToNextFlow() {
+		let streak = 0;
+		for (let i = sessionReplayIdx + 1; i < sessionReplayFlows.length; i++) {
+			if (sessionReplayFlows[i].flow.correct) { streak++; if (streak >= 3) { skipToWord(i - 2); return; } }
+			else streak = 0;
+		}
+	}
 
 	const chartGroups = [
 		{ label: 'Overview', tabs: [
@@ -2380,6 +2551,22 @@
 								</div>
 							</div>
 
+							<!-- Replay button -->
+							<div class="mb-2">
+								<button
+									onclick={() => {
+										patternPopup = null;
+										const label = isFlow
+											? `Flow Streak — ${clusterFlows.length} words`
+											: `Spiral — ${clusterFlows.length} words`;
+										startSessionReplay(clusterFlows, label);
+									}}
+									class="rounded border border-accent/30 bg-accent-muted/20 px-3 py-1.5 text-xs font-bold text-accent transition-colors hover:bg-accent-muted/40"
+								>
+									Replay this {isFlow ? 'streak' : 'spiral'}
+								</button>
+							</div>
+
 							<!-- Word list with details -->
 							<div class="space-y-1">
 								{#each clusterFlows as f, i}
@@ -2698,6 +2885,12 @@
 											>
 												Copy to Clipboard
 											</button>
+											<button
+												onclick={() => startSessionReplay(sess.flows, `Session ${sess.index} — ${sess.startTime}`)}
+												class="rounded border border-accent/30 bg-accent-muted/20 px-2 py-1 text-[10px] font-bold text-accent transition-colors hover:bg-accent-muted/40"
+											>
+												Replay
+											</button>
 										</div>
 
 										<!-- Speed zones (if varying) -->
@@ -2774,4 +2967,142 @@
 			</div>
 		{/if}
 	</div>
+
+	<style>
+		@keyframes replay-flash-green {
+			0% { background: rgba(34, 197, 94, 0.3); }
+			100% { background: transparent; }
+		}
+		@keyframes replay-flash-red {
+			0% { background: rgba(239, 68, 68, 0.3); }
+			100% { background: transparent; }
+		}
+	</style>
+
+	<!-- SESSION REPLAY OVERLAY -->
+	{#if sessionReplayActive}
+		{@const currentWf = sessionReplayFlows[sessionReplayIdx]}
+		{@const currentFlow = currentWf?.flow}
+		{@const totalWords = sessionReplayFlows.length}
+		{@const accuracy = sessionReplayStats.correct + sessionReplayStats.errors > 0 ? Math.round((sessionReplayStats.correct / (sessionReplayStats.correct + sessionReplayStats.errors)) * 100) : 100}
+		{@const flowMode = currentFlow?.mode || 'letter-by-letter'}
+		{@const flowDirection = currentFlow?.direction || 'left-to-right'}
+		{@const effectiveDirection = sessionReplayMode === 'as-typed' ? (flowMode === 'full-word' ? 'left-to-right' : flowDirection) : sessionReplayMode}
+		{@const showAllLetters = flowMode === 'full-word' || effectiveDirection === 'left-to-right'}
+		<div class="fixed inset-0 z-[80] flex flex-col bg-base">
+			<!-- Flash overlay -->
+			{#if sessionReplayFlash}
+				<div
+					class="pointer-events-none fixed inset-0 z-[90]"
+					style="animation: {sessionReplayFlash === 'success' ? 'replay-flash-green' : 'replay-flash-red'} 0.3s ease-out;"
+				></div>
+			{/if}
+
+			<!-- Top bar -->
+			<div class="flex items-center justify-between border-b border-base-border px-4 py-2">
+				<div class="flex items-center gap-3">
+					<span class="text-sm font-bold text-accent">{sessionReplayLabel || 'Session Replay'}</span>
+					<span class="text-xs text-base-text-muted">{sessionReplayIdx + 1}/{totalWords}</span>
+				</div>
+				<div class="flex items-center gap-2">
+					{#each [0.25, 0.5, 1, 2, 5] as speed}
+						<button
+							onclick={() => { sessionReplaySpeed = speed; if (!sessionReplayPaused) { for (const t of sessionReplayTimers) clearTimeout(t); sessionReplayTimers = []; playNextWord(); } }}
+							class="rounded px-1.5 py-0.5 text-[10px] font-mono {sessionReplaySpeed === speed ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
+						>{speed}x</button>
+					{/each}
+					<span class="mx-1 h-4 w-px bg-base-border"></span>
+					<!-- Replay mode -->
+					<select
+						bind:value={sessionReplayMode}
+						class="rounded border border-base-border bg-surface-hover px-1.5 py-0.5 text-[10px] text-base-text focus:border-accent focus:outline-none"
+					>
+						<option value="as-typed">As typed</option>
+						<option value="center">Center</option>
+						<option value="left-to-right">Left to right</option>
+					</select>
+					<!-- Hide reference -->
+					<button
+						onclick={() => sessionReplayHideRef = !sessionReplayHideRef}
+						class="rounded px-1.5 py-0.5 text-[10px] {sessionReplayHideRef ? 'text-base-text-muted hover:text-base-text' : 'bg-surface-hover text-accent'}"
+						title="Toggle word reference"
+					>Ref</button>
+					<!-- Show future letters -->
+					<button
+						onclick={() => sessionReplayShowFuture = !sessionReplayShowFuture}
+						class="rounded px-1.5 py-0.5 text-[10px] {sessionReplayShowFuture ? 'bg-surface-hover text-accent' : 'text-base-text-muted hover:text-base-text'}"
+						title="Show/hide upcoming letters"
+					>Future</button>
+					<span class="mx-1 h-4 w-px bg-base-border"></span>
+					<button onclick={toggleSessionReplayPause} class="rounded px-2 py-0.5 text-[10px] font-bold {sessionReplayPaused ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}">
+						{sessionReplayPaused ? 'Resume' : 'Pause'}
+					</button>
+					<button onclick={stopSessionReplay} class="rounded px-2 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 hover:bg-red-500/30">Close</button>
+				</div>
+			</div>
+
+			<!-- Running stats -->
+			<div class="flex items-center justify-center gap-6 border-b border-base-border py-2 text-xs">
+				<span class="text-green-400 font-bold">{sessionReplayStats.correct}</span>
+				<span class="text-base-text-muted">/</span>
+				<span class="text-red-400 font-bold">{sessionReplayStats.errors}</span>
+				<span class="{accuracy >= 60 ? 'text-green-400' : 'text-red-400'} font-bold">{accuracy}%</span>
+				{#if sessionReplayStats.combo > 0}
+					<span class="text-accent font-bold">{sessionReplayStats.combo} combo</span>
+				{/if}
+				{#if currentFlow?.speed}
+					<span class="text-base-text-muted">{currentFlow.speed.toFixed(2)}x</span>
+				{/if}
+			</div>
+
+			<!-- Main replay area -->
+			<div class="flex flex-1 items-center justify-center">
+				{#if currentWf && replaySettings && replayWord}
+					<div class="flex flex-col items-center gap-4">
+						<!-- Use actual game RenderWord component -->
+						<RenderWord
+							word={replayWord}
+							typedWord={replayTypedWord}
+							settings={replaySettings}
+							baseStyles={replayBaseStyles}
+							wordTransform=""
+						/>
+
+						<!-- Reference word (toggleable) -->
+						{#if !sessionReplayHideRef}
+							<div class="text-sm text-base-text-muted/30">{currentWf.word}</div>
+						{/if}
+					</div>
+				{:else}
+					<div class="text-center">
+						<div class="text-2xl font-bold text-accent mb-2">Replay Complete</div>
+						<div class="text-sm text-base-text-muted">{sessionReplayStats.correct} correct, {sessionReplayStats.errors} errors, {accuracy}%</div>
+						<div class="text-sm text-base-text-muted">Best combo: {sessionReplayStats.bestCombo}</div>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Timeline + controls -->
+			<div class="border-t border-base-border px-4 py-3">
+				<div class="mb-2 flex items-center justify-center gap-2">
+					<button onclick={() => skipToWord(Math.max(0, sessionReplayIdx - 1))} class="rounded px-2 py-0.5 text-[10px] text-base-text-muted hover:text-base-text">Prev</button>
+					<button onclick={skipToNextError} class="rounded px-2 py-0.5 text-[10px] text-red-400 hover:text-red-300">Next Error</button>
+					<button onclick={skipToNextFlow} class="rounded px-2 py-0.5 text-[10px] text-green-400 hover:text-green-300">Next Flow</button>
+					<button onclick={() => skipToWord(Math.min(totalWords - 1, sessionReplayIdx + 1))} class="rounded px-2 py-0.5 text-[10px] text-base-text-muted hover:text-base-text">Next</button>
+				</div>
+				<div class="flex h-4 w-full gap-px overflow-hidden rounded">
+					{#each sessionReplayFlows as f, i}
+						<button
+							onclick={() => skipToWord(i)}
+							class="h-full flex-1 min-w-[2px] transition-opacity {
+								i === sessionReplayIdx ? 'ring-1 ring-accent' :
+								i < sessionReplayIdx ? 'opacity-40' : 'opacity-100'
+							} {f.flow.correct ? 'bg-green-500/60' : 'bg-red-500/60'}"
+							title="{f.word} — {f.flow.correct ? 'correct' : 'error'}"
+						></button>
+					{/each}
+				</div>
+			</div>
+		</div>
+	{/if}
 {/if}

@@ -462,6 +462,9 @@
 			<!-- Session stats + focus zone (center) -->
 			<div class="flex flex-col items-center gap-0.5">
 				<div class="flex items-center gap-4 text-[11px] text-base-text-muted">
+					{#if mindDojo.isWarmup}
+						<span class="rounded bg-purple-500/20 px-1.5 py-0.5 text-[10px] font-bold text-purple-400">WARMUP {mindDojo.warmupRemaining}</span>
+					{/if}
 					<span>{formatSessionTime(sessionSeconds)}</span>
 					<span class="text-green-400">{mindDojo.sessionCorrect}</span>
 					<span class="text-base-text-muted">/</span>
@@ -507,16 +510,18 @@
 						x{(1 + Math.floor(mindDojo.combo / 5) * 0.5).toFixed(1)}
 					</span>
 				{/if}
-				<button
-					onclick={toggleWordBank}
-					class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
-					title="Word Bank (Ctrl+H)"
-					aria-label="Open word bank"
-				>
-					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-					</svg>
-				</button>
+				<!-- Replay (opens stats) -->
+				{#if mindDojo.sessionTimeline.length > 3}
+					<button
+						onclick={async () => { await loadSavedWords(); showWordBank = true; }}
+						class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+						title="Session replay & stats"
+						aria-label="Session replay"
+					>
+						<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+					</button>
+				{/if}
+				<!-- Journal -->
 				<button
 					onclick={toggleJournal}
 					class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
@@ -527,6 +532,18 @@
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
 					</svg>
 				</button>
+				<!-- Stats (Word Bank) -->
+				<button
+					onclick={toggleWordBank}
+					class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+					title="Stats (Ctrl+H)"
+					aria-label="Open stats"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+					</svg>
+				</button>
+				<!-- Settings -->
 				<button
 					onclick={toggleSettingPopup}
 					class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
@@ -544,16 +561,6 @@
 			<div class="flex-1"></div>
 			<div class="flex items-center gap-3">
 				<button
-					onclick={toggleWordBank}
-					class="rounded-lg p-1.5 text-base-text-muted/30 transition-colors hover:text-base-text-muted"
-					title="Word Bank (Ctrl+H)"
-					aria-label="Open word bank"
-				>
-					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-					</svg>
-				</button>
-				<button
 					onclick={toggleJournal}
 					class="rounded-lg p-1.5 text-base-text-muted/30 transition-colors hover:text-base-text-muted"
 					title="Journal (Ctrl+J)"
@@ -561,6 +568,16 @@
 				>
 					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+					</svg>
+				</button>
+				<button
+					onclick={toggleWordBank}
+					class="rounded-lg p-1.5 text-base-text-muted/30 transition-colors hover:text-base-text-muted"
+					title="Stats (Ctrl+H)"
+					aria-label="Open stats"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
 					</svg>
 				</button>
 				<button

@@ -17,6 +17,50 @@
 	let view: 'latest' | 'history' | 'insights' = $state(defaultView === 'history' ? 'history' : defaultView === 'insights' ? 'insights' : 'latest');
 	let chartUnit: 'ms' | 'pct' = $state('ms');
 
+	// ── Replay animation state ──
+	let replayActive = $state(false);
+	let replayLetterIndex = $state(0);
+	let replaySpeed = $state(1);
+	let replayShowFuture = $state(false);
+	let replayTimers: ReturnType<typeof setTimeout>[] = [];
+
+	function startReplay() {
+		stopReplay();
+		if (!activeFlow) return;
+		replayActive = true;
+		replayLetterIndex = 0;
+
+		const intervals = activeFlow.letterIntervals;
+		const reaction = getReactionTime(activeFlow);
+		const speedFactor = replaySpeed;
+
+		// First: show reaction time delay
+		let cumulative = reaction / speedFactor;
+		replayTimers.push(setTimeout(() => {
+			replayLetterIndex = 1;
+		}, cumulative));
+
+		// Then: each subsequent letter at its actual interval
+		for (let i = 1; i < intervals.length; i++) {
+			cumulative += (intervals[i] || 0) / speedFactor;
+			const idx = i + 1;
+			replayTimers.push(setTimeout(() => {
+				replayLetterIndex = idx;
+				// End replay after last letter
+				if (idx >= intervals.length) {
+					// Don't auto-close — user closes manually
+				}
+			}, cumulative));
+		}
+	}
+
+	function stopReplay() {
+		for (const t of replayTimers) clearTimeout(t);
+		replayTimers = [];
+		replayActive = false;
+		replayLetterIndex = 0;
+	}
+
 	// Reset selected flow when word changes (prevents stale index from previous word)
 	let prevWord = word;
 	$effect(() => {
@@ -582,12 +626,79 @@
 </script>
 
 {#if flows.length > 0}
-	<div class="mt-3 border-t border-base-border pt-3">
+	<div class="relative mt-3 border-t border-base-border pt-3">
+		<!-- Replay overlay -->
+		{#if replayActive}
+			<div class="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-base/95 backdrop-blur-sm">
+				<!-- Speed controls at top -->
+				<div class="absolute top-2 right-2 flex items-center gap-1.5">
+					<button
+						onclick={() => replayShowFuture = !replayShowFuture}
+						class="rounded px-1.5 py-0.5 text-[9px] {replayShowFuture ? 'bg-surface-hover text-accent' : 'text-base-text-muted hover:text-base-text'}"
+					>Future</button>
+					<div class="flex gap-0.5">
+						{#each [0.25, 0.5, 1, 2, 5] as speed}
+							<button
+								onclick={() => { replaySpeed = speed; startReplay(); }}
+								class="rounded px-1.5 py-0.5 text-[9px] font-mono {replaySpeed === speed ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
+							>{speed}x</button>
+						{/each}
+					</div>
+					<button onclick={stopReplay} class="rounded bg-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-400 hover:bg-red-500/30">Stop</button>
+				</div>
+
+				<!-- Centered animated word -->
+				<div class="flex flex-wrap items-end justify-center gap-1 font-mono text-2xl">
+					{#each word.split('') as letter, i}
+						{@const typed = i < replayLetterIndex}
+						{@const current = i === replayLetterIndex - 1}
+						{@const intervals = activeFlow?.letterIntervals || []}
+						{@const interval = i > 0 && i < intervals.length ? intervals[i] : 0}
+						{@const interKey = getTypingIntervals(activeFlow || flows[0])}
+						{@const avg = interKey.length > 0 ? interKey.reduce((a, b) => a + b, 0) / interKey.length : 0}
+						{@const stdDev = interKey.length > 1 ? Math.sqrt(interKey.reduce((s, v) => s + (v - avg) ** 2, 0) / interKey.length) : 0}
+						{@const isHesitation = i > 0 && interval > avg + stdDev * 0.8}
+						{@const isRush = i > 0 && interval > 0 && interval < avg - stdDev * 0.5 && interval < avg * 0.6}
+						{@const isFuture = !typed && !current}
+						<div class="flex flex-col items-center transition-all duration-75">
+							{#if isFuture && !replayShowFuture}
+								<span class="h-9 flex items-center justify-center text-base-text-muted/5">·</span>
+							{:else}
+								<span class="h-9 flex items-center justify-center {
+									!typed && !current ? (replayShowFuture ? 'text-base-text-muted/15' : 'text-base-text-muted/5') :
+									current ? 'text-accent scale-125 font-black' :
+									i === 0 ? 'text-purple-400' :
+									isHesitation ? 'text-amber-400' :
+									isRush ? 'text-cyan-400' :
+									'text-green-400'
+								}">
+									{letter}
+								</span>
+							{/if}
+							{#if typed && i > 0 && interval > 0}
+								<span class="text-[8px] {isHesitation ? 'text-amber-400' : isRush ? 'text-cyan-400' : 'text-base-text-muted/40'}">{Math.round(interval)}</span>
+							{:else if typed && i === 0}
+								<span class="text-[8px] text-purple-400">{Math.round(getReactionTime(activeFlow || flows[0]))}</span>
+							{:else}
+								<span class="text-[8px] text-transparent">0</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+
+				<!-- Progress -->
+				<div class="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[9px] text-base-text-muted">
+					<span>{replayLetterIndex}/{word.length} letters</span>
+					<span class="{activeFlow?.correct ? 'text-green-400' : 'text-red-400'}">{activeFlow?.correct ? 'Correct' : 'Error'}</span>
+				</div>
+			</div>
+		{/if}
+
 		<!-- Header with view tabs -->
 		<div class="mb-2 flex items-center justify-between">
 			<div class="flex items-center gap-2">
 				<h4 class="text-xs font-semibold tracking-wide text-accent uppercase">Typing Flow</h4>
-				{#if view !== 'insights'}
+				{#if view !== 'insights' && !replayActive}
 					<button
 						onclick={() => chartUnit = chartUnit === 'ms' ? 'pct' : 'ms'}
 						class="rounded px-1 py-0.5 text-[9px] font-mono transition-colors {chartUnit === 'pct' ? 'bg-purple-500/20 text-purple-400' : 'text-base-text-muted hover:text-base-text'}"
@@ -598,9 +709,19 @@
 				{/if}
 			</div>
 			<div class="flex gap-1">
+				<!-- Play button -->
+				{#if activeFlow && !replayActive}
+					<button
+						onclick={startReplay}
+						class="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors text-base-text-muted hover:text-accent"
+						title="Replay keystrokes"
+					>
+						<svg class="h-3.5 w-3.5 inline" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+					</button>
+				{/if}
 				{#each viewLabels as v}
 					<button
-						onclick={() => { view = v; }}
+						onclick={() => { view = v; stopReplay(); }}
 						class="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors {view === v ? 'bg-accent text-black' : 'text-base-text-muted hover:text-accent'}"
 					>
 						{v === 'latest' ? 'Latest' : v === 'history' ? 'History' : 'Insights'}

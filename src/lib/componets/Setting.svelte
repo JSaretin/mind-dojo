@@ -127,6 +127,16 @@
 					<span>Push</span>
 					<span>Rest</span>
 				</div>
+				<!-- Speed sync buttons -->
+				<div class="mt-3 flex gap-2 border-t border-base-border pt-3">
+					<button
+						onclick={() => mindDojo.useManualSpeedAsAuto()}
+						class="flex-1 rounded border border-base-border px-2 py-1.5 text-[10px] text-base-text-muted transition-colors hover:border-accent hover:text-accent"
+						title="Set auto base to manual speed ({settings.savedManualSpeed.toFixed(2)}x)"
+					>
+						Use manual ({settings.savedManualSpeed.toFixed(2)}x)
+					</button>
+				</div>
 			{/if}
 		</div>
 
@@ -156,6 +166,17 @@
 				}}
 				class="w-full rounded-md border border-base-border bg-surface px-3 py-2 font-mono text-base-text focus:border-accent focus:outline-none"
 			/>
+			{#if settings.autoSpeedBase > 0}
+				<div class="mt-3 flex gap-2 border-t border-base-border pt-3">
+					<button
+						onclick={() => mindDojo.useAutoSpeedAsManual()}
+						class="flex-1 rounded border border-base-border px-2 py-1.5 text-[10px] text-base-text-muted transition-colors hover:border-accent hover:text-accent"
+						title="Set manual speed to auto base ({settings.autoSpeedBase.toFixed(2)}x)"
+					>
+						Use auto ({settings.autoSpeedBase.toFixed(2)}x)
+					</button>
+				</div>
+			{/if}
 		</div>
 		{/if}
 
@@ -531,6 +552,26 @@
 					<span class="text-sm text-base-text">Toggle restart-on-error each level</span>
 				</label>
 			</div>
+		</div>
+
+		<!-- Warmup -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<div class="mb-2 flex items-center justify-between">
+				<span class="text-sm font-bold text-accent">Warmup</span>
+				<span class="font-mono text-sm text-base-text">
+					{settings.warmupWords > 0 ? `${settings.warmupWords} words` : 'Off'}
+				</span>
+			</div>
+			<input
+				type="range" min="0" max="20" step="1"
+				bind:value={settings.warmupWords}
+				class="w-full accent-accent"
+			/>
+			<p class="mt-1 text-[10px] text-base-text-muted">
+				{settings.warmupWords > 0
+					? `First ${settings.warmupWords} words don't count. Timer is 50% more generous. Stats start after warmup.`
+					: 'No warmup. Every word counts from the start.'}
+			</p>
 		</div>
 
 		<!-- Session Goal -->

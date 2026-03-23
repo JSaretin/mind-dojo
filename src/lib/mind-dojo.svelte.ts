@@ -62,8 +62,10 @@ const defaultSetting: MindDojoSettings = {
     lockedMinSpeed: 0,
     autoSpeed: false,
     autoSpeedBase: 0,
+    savedManualSpeed: 2,
     autoFatigueRest: true,
     wordSource: 'dictionary',
+    warmupWords: 0,
     breatheDelay: 0,
     breathePrompts: true,
     breathePromptsAlways: true,
@@ -198,6 +200,10 @@ export class MindDojo {
         const total = this.sessionSelfErrors + this.sessionTimerErrors;
         return total > 0 ? Math.round((this.sessionSelfErrors / total) * 100) : 50;
     }
+
+    /** Warmup tracking */
+    warmupRemaining = $state(0)
+    get isWarmup(): boolean { return this.warmupRemaining > 0; }
 
     /** Session goal tracking */
     get sessionGoalProgress(): number {
@@ -528,6 +534,7 @@ export class MindDojo {
         this.clearTimers()
         this.sessionPhase = 'active'
         this.sessionActiveTime = 0
+        this.warmupRemaining = this.settings.warmupWords
         if (browser) localStorage.setItem('sessionPhase', 'active')
     }
 
@@ -841,8 +848,10 @@ export class MindDojo {
             lastLetter = letter
         }
 
-        this.wordMaxDuration = totalWait
-        this.wordTimerDuration = totalWait
+        // Warmup: 50% more time
+        const warmupBonus = this.isWarmup ? 1.5 : 1;
+        this.wordMaxDuration = totalWait * warmupBonus
+        this.wordTimerDuration = totalWait * warmupBonus
     }
 
     private buildTypingFlow(correct: boolean, errorType?: 'self' | 'timer'): TypingFlow {
@@ -873,6 +882,7 @@ export class MindDojo {
             speed: this.settings.speed,
             msPerLetter: 1000 / speed,
             mode: this.settings.franticMode ? 'chaos' : this.settings.displayMode === 'full-word' ? 'full-word' : 'letter-by-letter',
+            direction: this.settings.letterStyle.letterDisplayDirection,
             ...(!correct && errorType ? { errorType } : {}),
         }
     }
@@ -965,6 +975,8 @@ export class MindDojo {
 
     /** Enable auto speed mode — takes over speed control */
     enableAutoSpeed() {
+        // Save current manual speed before switching
+        this.settings.savedManualSpeed = this.settings.speed;
         this.settings.autoSpeed = true;
         if (!this.settings.autoSpeedBase || this.settings.autoSpeedBase <= 0) {
             this.settings.autoSpeedBase = this.settings.speed || 2;
@@ -972,14 +984,44 @@ export class MindDojo {
         this.setAutoSpeedZone('base');
     }
 
-    /** Disable auto speed — return to manual control */
+    /** Disable auto speed — return to saved manual speed */
     disableAutoSpeed() {
         this.settings.autoSpeed = false;
-        // Keep current speed as the manual speed
-        this.settings.speed = this.getAutoSpeedForZone(this.autoSpeedZone);
+        // Restore saved manual speed (respect commitment lock)
+        const restored = this.settings.savedManualSpeed || this.settings.speed;
+        this.settings.speed = this.settings.lockedMinSpeed > 0
+            ? Math.max(restored, this.settings.lockedMinSpeed)
+            : restored;
+    }
+
+    /** Copy auto speed base to manual speed (respect commitment lock) */
+    useAutoSpeedAsManual() {
+        const speed = this.settings.lockedMinSpeed > 0
+            ? Math.max(this.settings.autoSpeedBase, this.settings.lockedMinSpeed)
+            : this.settings.autoSpeedBase;
+        this.settings.savedManualSpeed = speed;
+        this.settings.speed = speed;
+    }
+
+    /** Copy current manual speed to auto speed base and reset zone */
+    useManualSpeedAsAuto() {
+        const speed = this.settings.lockedMinSpeed > 0
+            ? Math.max(this.settings.speed, this.settings.lockedMinSpeed)
+            : this.settings.speed;
+        this.settings.autoSpeedBase = speed;
+        this.setAutoSpeedZone('base');
     }
 
     handleError(errorType: 'self' | 'timer' = 'self') {
+        // Warmup: skip stats, just pick next word
+        if (this.isWarmup) {
+            this.warmupRemaining--;
+            if (!this.settings.noFeedbackSound) this.playSound(this.gameSound.wrong, 0.2)
+            this.lastEvent = { type: "error", id: ++this.eventCounter }
+            this.pickNextWord()
+            return
+        }
+
         if (errorType === 'self') this.sessionSelfErrors++;
         else this.sessionTimerErrors++;
         this.lastErrorType = errorType;
@@ -1086,6 +1128,15 @@ export class MindDojo {
         }
 
         if (this.currentWord?.word === this.typedWord) {
+            // Warmup: skip all stats, just play sound and continue
+            if (this.isWarmup) {
+                this.warmupRemaining--
+                if (!this.settings.noFeedbackSound) this.playSound(this.gameSound.win, 0.3)
+                this.lastEvent = { type: "success", text: `warmup ${this.warmupRemaining}`, id: ++this.eventCounter }
+                this.pickNextWord()
+                return
+            }
+
             this.recordAutoSpeedResult(true)
             this.recordFatigueResult(true)
             if (this.currentWord) {
