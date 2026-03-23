@@ -1,4 +1,4 @@
-import { mergeAttributes, Node } from '@tiptap/core'
+import { mergeAttributes, Node, InputRule } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import Suggestion, { type SuggestionOptions } from '@tiptap/suggestion'
 
@@ -44,6 +44,36 @@ export const WikiLink = Node.create({
 
     renderText({ node }) {
         return `[[${node.attrs.label}]]`
+    },
+
+    // tiptap-markdown integration: serialize as [[label]], parse [[label]] back
+    addStorage() {
+        return {
+            markdown: {
+                serialize(state: any, node: any) {
+                    state.write(`[[${node.attrs.label}]]`)
+                },
+                parse: {
+                    // handled via inputRules below
+                },
+            },
+        }
+    },
+
+    addInputRules() {
+        // When user types [[something]] manually (e.g. from Obsidian paste), convert to wikiLink node
+        return [
+            new InputRule({
+                find: /\[\[([^\]]+)\]\]$/,
+                handler: ({ state, range, match, chain }) => {
+                    const label = match[1]
+                    chain().insertContentAt(range, {
+                        type: 'wikiLink',
+                        attrs: { id: label, label, linkType: 'word' },
+                    }).run()
+                },
+            }),
+        ]
     },
 
     addKeyboardShortcuts() {

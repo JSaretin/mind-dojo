@@ -63,6 +63,13 @@ const defaultSetting: MindDojoSettings = {
     autoSpeed: false,
     autoSpeedBase: 0,
     autoFatigueRest: true,
+    wordSource: 'dictionary',
+    breatheDelay: 0,
+    breathePrompts: true,
+    breathePromptsAlways: true,
+    breatheCustomPrompts: '',
+    sessionGoalType: 'none',
+    sessionGoalValue: 50,
 };
 
 
@@ -155,9 +162,9 @@ export class MindDojo {
     bestCombo = $state(this._dojoProgress.bestCombo)
     totalCorrect = $state(this._dojoProgress.totalCorrect)
     totalErrors = $state(this._dojoProgress.totalErrors)
-    combo = $state(0)
-    sessionCorrect = $state(0)
-    sessionErrors = $state(0)
+    combo = $state(browser ? parseInt(localStorage.getItem('sessionCombo') || '0') : 0)
+    sessionCorrect = $state(browser ? parseInt(localStorage.getItem('sessionCorrect') || '0') : 0)
+    sessionErrors = $state(browser ? parseInt(localStorage.getItem('sessionErrors') || '0') : 0)
     sessionStartTime = Date.now()
     sessionTimeline: { word: string; correct: boolean; duration: number; ts: number }[] = $state(
         browser ? (() => { try { return JSON.parse(localStorage.getItem("sessionTimeline") || "[]") } catch { return [] } })() : []
@@ -170,8 +177,9 @@ export class MindDojo {
     private sessionActiveTime = $state(0)
     /** Timestamp of last word completion — used for idle gap detection */
     private lastWordCompletedAt = $state(Date.now())
-    /** Whether rest was triggered by fatigue detection (vs timer) */
-    restReason: 'timer' | 'fatigue' | null = $state(null)
+    restReason: 'timer' | 'fatigue' | null = $state(
+        browser ? (localStorage.getItem('restReason') as 'timer' | 'fatigue') || null : null
+    )
     private sessionTimer: ReturnType<typeof setTimeout> | null = null
     private restInterval: ReturnType<typeof setInterval> | null = null
     sessionJournals: { text: string; timestamp: number }[] = $state([])
@@ -182,15 +190,159 @@ export class MindDojo {
     private readonly FATIGUE_WINDOW = 30
     private readonly FATIGUE_DROP_THRESHOLD = 20 // percentage points
 
+    // ── Live Presence State ──
+    /** Live error type tracking — persisted for rest screen */
+    sessionSelfErrors = $state(browser ? parseInt(localStorage.getItem('sessionSelfErrors') || '0') : 0)
+    sessionTimerErrors = $state(browser ? parseInt(localStorage.getItem('sessionTimerErrors') || '0') : 0)
+    get selfErrorPct(): number {
+        const total = this.sessionSelfErrors + this.sessionTimerErrors;
+        return total > 0 ? Math.round((this.sessionSelfErrors / total) * 100) : 50;
+    }
+
+    /** Session goal tracking */
+    get sessionGoalProgress(): number {
+        if (this.settings.sessionGoalType === 'words') {
+            return Math.min(Math.round(((this.sessionCorrect + this.sessionErrors) / Math.max(this.settings.sessionGoalValue, 1)) * 100), 100);
+        }
+        if (this.settings.sessionGoalType === 'accuracy') {
+            return Math.min(this.accuracy, 100);
+        }
+        return 0;
+    }
+    get sessionGoalReached(): boolean {
+        if (this.settings.sessionGoalType === 'words') {
+            return (this.sessionCorrect + this.sessionErrors) >= this.settings.sessionGoalValue;
+        }
+        if (this.settings.sessionGoalType === 'accuracy') {
+            return this.accuracy >= this.settings.sessionGoalValue && (this.sessionCorrect + this.sessionErrors) >= 10;
+        }
+        return false;
+    }
+
+
+    /** Whether breathe pause is active (post-error delay) */
+    breatheActive = $state(false)
+    breathePromptText: string = $state('')
+    private breatheTimer: ReturnType<typeof setTimeout> | null = null
+    private lastErrorType: 'self' | 'timer' = 'self'
+    private consecutiveErrors = 0
+
+    // ── Breathe Prompt Pools ──
+    private static readonly PROMPTS_PRESENCE = [
+        'This letter. Nothing else.', 'Just this one.', 'What do you see right now?',
+        'Here.', 'Only what is shown.', 'Stay with what is.',
+    ];
+    private static readonly PROMPTS_SURRENDER = [
+        'Let go.', "You don't need to know what's next.", 'Stop holding. Start seeing.',
+        'Release the grip.', 'Nothing to fix.', 'Allow.',
+    ];
+    private static readonly PROMPTS_NONJUDGMENT = [
+        'Not good. Not bad. Just this.', "Notice. That's all.", 'No story needed.',
+        'It happened. Now this.', 'Without opinion.',
+    ];
+    private static readonly PROMPTS_TRUST = [
+        'Your fingers already know.', 'The next letter will appear.',
+        "You don't need to prepare.", "It arrives when you're ready.", 'Trust the process.',
+    ];
+    private static readonly PROMPTS_LET_GO_PAST = [
+        'That word is done.', 'Gone. This is new.', 'Begin here.',
+        'Every letter is the first.', 'Clean slate.',
+    ];
+    private static readonly PROMPTS_LET_GO_FUTURE = [
+        "Don't finish the word yet.", 'One letter. Not ten.',
+        'The end takes care of itself.', 'Stop reaching ahead.', 'Arrive before you move.',
+    ];
+
+    private pickBreathePrompt(): string {
+        if (!this.settings.breathePrompts) return '';
+        if (!this.settings.breathePromptsAlways && Math.random() > 0.6) return '';
+
+        // Build context-aware pool
+        let pool: string[] = [];
+        if (this.consecutiveErrors >= 2) {
+            // Spiral — non-judgment + letting go of past
+            pool = [...MindDojo.PROMPTS_NONJUDGMENT, ...MindDojo.PROMPTS_LET_GO_PAST];
+        } else if (this.lastErrorType === 'timer') {
+            // Timer error — surrender + letting go of future
+            pool = [...MindDojo.PROMPTS_SURRENDER, ...MindDojo.PROMPTS_LET_GO_FUTURE];
+        } else {
+            // Self error — presence + trust
+            pool = [...MindDojo.PROMPTS_PRESENCE, ...MindDojo.PROMPTS_TRUST];
+        }
+
+        // Add user custom prompts
+        if (this.settings.breatheCustomPrompts) {
+            const custom = this.settings.breatheCustomPrompts
+                .split('\n')
+                .map(l => l.trim())
+                .filter(l => l.length > 0 && l.length <= 50);
+            pool.push(...custom);
+        }
+
+        return pool[Math.floor(Math.random() * pool.length)] || '';
+    }
+
+    /** Rolling inter-key intervals for real-time CV calculation */
+    private presenceIntervals: number[] = []
+    private readonly PRESENCE_WINDOW = 30
+    /** Current live presence state: 'flow' | 'present' | 'distracted' | 'spiral' */
+    presenceState: 'flow' | 'present' | 'distracted' | 'spiral' = $state('present')
+    /** Current correct streak length */
+    currentStreak = $state(0)
+    /** Errors in last 5 words */
+    private recentErrors = $state(0)
+    private recentResults: boolean[] = []
+
+    private updatePresenceState(flow: { letterIntervals: number[]; correct: boolean }) {
+        // Track streak
+        if (flow.correct) {
+            this.currentStreak++
+        } else {
+            this.currentStreak = 0
+        }
+
+        // Track recent errors (last 5 results)
+        this.recentResults.push(flow.correct)
+        if (this.recentResults.length > 5) this.recentResults.shift()
+        this.recentErrors = this.recentResults.filter(r => !r).length
+
+        // Track rolling CV from inter-key intervals
+        const interKey = flow.letterIntervals.slice(1).filter(v => v > 0)
+        this.presenceIntervals.push(...interKey)
+        while (this.presenceIntervals.length > this.PRESENCE_WINDOW) {
+            this.presenceIntervals.shift()
+        }
+
+        // Compute state
+        if (this.recentErrors >= 3) {
+            this.presenceState = 'spiral'
+        } else if (this.presenceIntervals.length >= 10) {
+            const mean = this.presenceIntervals.reduce((a, b) => a + b, 0) / this.presenceIntervals.length
+            const stdDev = Math.sqrt(this.presenceIntervals.reduce((s, v) => s + (v - mean) ** 2, 0) / this.presenceIntervals.length)
+            const cv = mean > 0 ? stdDev / mean : 1
+            if (cv < 0.08 && this.currentStreak >= 5) {
+                this.presenceState = 'flow'
+            } else if (cv < 0.15) {
+                this.presenceState = 'present'
+            } else {
+                this.presenceState = 'distracted'
+            }
+        } else {
+            this.presenceState = 'present'
+        }
+    }
+
     // ── Auto Speed ──
     autoSpeedZone: 'base' | 'flow' | 'challenge' = $state('base')
     private autoSpeedResults: boolean[] = $state([])
     private autoSpeedWordsInZone = $state(0)
     private autoSpeedChallengeTarget = $state(5)
+    /** Gate score: +1 on correct, -2 on error, clamped to [0, gateTarget]. Graduate at 100%. */
+    private autoSpeedGateScore = $state(0)
 
-    // Rolling window: only the last N results count
+    // Rolling window: only the last N results count (used for drop detection)
     private readonly AUTO_SPEED_WINDOW = 15
-    private readonly AUTO_SPEED_GATE_THRESHOLD = 0.80
+    private readonly AUTO_SPEED_GATE_TARGET = 12  // correct words needed to graduate (100%)
     private readonly AUTO_SPEED_DROP_THRESHOLD = 0.60
     private readonly AUTO_SPEED_BUMP = 1.01     // +1% on Flow mastery
     private readonly AUTO_SPEED_DROP = 0.99      // -1% on Flow failure
@@ -204,16 +356,8 @@ export class MindDojo {
             return Math.min(Math.round((this.autoSpeedWordsInZone / this.autoSpeedChallengeTarget) * 100), 100);
         }
 
-        // Base/Flow: progress = how close accuracy is to the 80% gate
-        // Below 60% = 0%, at 60% = 0%, at 80% = 100%
-        if (!this.autoSpeedWindowFull) {
-            // Window not full yet — show fill progress
-            return Math.round((this.autoSpeedResults.length / this.AUTO_SPEED_WINDOW) * 50);
-        }
-        const acc = this.autoSpeedAccuracy;
-        const range = this.AUTO_SPEED_GATE_THRESHOLD - this.AUTO_SPEED_DROP_THRESHOLD; // 0.80 - 0.60 = 0.20
-        const normalized = (acc - this.AUTO_SPEED_DROP_THRESHOLD) / range; // 0 at 60%, 1 at 80%
-        return Math.max(0, Math.min(Math.round(normalized * 100), 100));
+        // Base/Flow: gate score tracks progress. +1 correct, -2 error. Graduate at target.
+        return Math.min(Math.round((this.autoSpeedGateScore / this.AUTO_SPEED_GATE_TARGET) * 100), 100);
     }
 
     get autoSpeedFlowSpeed() { return parseFloat((this.settings.autoSpeedBase * 1.1).toFixed(4)); }
@@ -240,54 +384,67 @@ export class MindDojo {
         this.autoSpeedZone = zone;
         this.autoSpeedResults = [];
         this.autoSpeedWordsInZone = 0;
+        this.autoSpeedGateScore = 0;
         this.settings.speed = this.getAutoSpeedForZone(zone);
         if (zone === 'challenge') {
             this.autoSpeedChallengeTarget = Math.floor(Math.random() * 6) + 3; // 3-8 words
         }
     }
 
+    /** Track last known base to detect manual changes */
+    private lastAutoSpeedBase = 0
+
     private advanceAutoSpeedZone() {
         if (!this.settings.autoSpeed) return
 
-        // Apply current zone speed (in case settings changed)
+        // Detect manual base speed change — reset zone to respect new base
+        if (this.lastAutoSpeedBase > 0 && this.settings.autoSpeedBase !== this.lastAutoSpeedBase) {
+            this.setAutoSpeedZone('base');
+        }
+        this.lastAutoSpeedBase = this.settings.autoSpeedBase;
+
+        // Apply current zone speed
         this.settings.speed = this.getAutoSpeedForZone(this.autoSpeedZone);
     }
 
     private recordAutoSpeedResult(correct: boolean) {
         if (!this.settings.autoSpeed) return
 
+        // Rolling window — used for drop detection only
         this.autoSpeedResults.push(correct);
-        // Errors count double — every error visibly decreases progress
-        if (!correct) {
-            this.autoSpeedResults.push(false);
-        }
-        // Keep only the last N results
         while (this.autoSpeedResults.length > this.AUTO_SPEED_WINDOW) {
             this.autoSpeedResults.shift();
         }
         this.autoSpeedWordsInZone++;
+
+        // Gate score: +1 correct, -2 error, clamped to [0, target]
+        if (correct) {
+            this.autoSpeedGateScore = Math.min(this.autoSpeedGateScore + 1, this.AUTO_SPEED_GATE_TARGET);
+        } else {
+            this.autoSpeedGateScore = Math.max(this.autoSpeedGateScore - 2, 0);
+        }
 
         const acc = this.autoSpeedAccuracy;
         const enoughData = this.autoSpeedWindowFull;
 
         switch (this.autoSpeedZone) {
             case 'base':
-                // Gate: advance to Flow only on a correct word — never graduate on an error
-                if (correct && enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
+                // Graduate to Flow: score hits target on a correct word
+                if (correct && this.autoSpeedGateScore >= this.AUTO_SPEED_GATE_TARGET) {
                     this.setAutoSpeedZone('flow');
                 }
                 break;
 
             case 'flow':
-                // Drop back to Base if accuracy < 60%
+                // Drop back to Base if rolling accuracy < 60%
                 if (enoughData && acc < this.AUTO_SPEED_DROP_THRESHOLD) {
                     // Too hard — lower base speed
                     const newBase = parseFloat((this.settings.autoSpeedBase * this.AUTO_SPEED_DROP).toFixed(4));
                     this.settings.autoSpeedBase = Math.max(newBase, this.settings.lockedMinSpeed || 1);
                     this.setAutoSpeedZone('base');
                 }
-                // Gate: advance to Challenge only on a correct word
-                else if (correct && enoughData && acc >= this.AUTO_SPEED_GATE_THRESHOLD) {
+                // Graduate to Challenge: score hits target on a correct word
+                else if (correct && this.autoSpeedGateScore >= this.AUTO_SPEED_GATE_TARGET) {
                     // Flow mastered — raise base speed
                     this.settings.autoSpeedBase = parseFloat((this.settings.autoSpeedBase * this.AUTO_SPEED_BUMP).toFixed(4));
                     this.setAutoSpeedZone('challenge');
@@ -295,7 +452,7 @@ export class MindDojo {
                 break;
 
             case 'challenge':
-                // Drop back to Base if accuracy < 60%
+                // Drop back to Base if rolling accuracy < 60%
                 if (enoughData && acc < this.AUTO_SPEED_DROP_THRESHOLD) {
                     this.setAutoSpeedZone('base');
                 }
@@ -366,6 +523,8 @@ export class MindDojo {
     }
 
     startSessionTimer() {
+        // Don't overwrite persisted rest state on reload
+        if (this.sessionPhase === 'rest') return
         this.clearTimers()
         this.sessionPhase = 'active'
         this.sessionActiveTime = 0
@@ -385,7 +544,15 @@ export class MindDojo {
     private enterRest(reason: 'timer' | 'fatigue' = 'timer') {
         this.sessionPhase = 'rest'
         this.restReason = reason
-        if (browser) localStorage.setItem('sessionPhase', 'rest')
+        if (browser) {
+            localStorage.setItem('sessionPhase', 'rest')
+            localStorage.setItem('restReason', reason)
+            localStorage.setItem('sessionCorrect', String(this.sessionCorrect))
+            localStorage.setItem('sessionErrors', String(this.sessionErrors))
+            localStorage.setItem('sessionCombo', String(this.combo))
+            localStorage.setItem('sessionSelfErrors', String(this.sessionSelfErrors))
+            localStorage.setItem('sessionTimerErrors', String(this.sessionTimerErrors))
+        }
         // Stop the word timer
         if (this.timer) {
             cancelAnimationFrame(this.timer)
@@ -393,14 +560,23 @@ export class MindDojo {
         }
         const restMins = this.settings.restDuration
         if (restMins > 0) {
-            this.restSecondsLeft = restMins * 60
-            this.restInterval = setInterval(() => {
-                this.restSecondsLeft--
-                if (this.restSecondsLeft <= 0) {
-                    this.endRest()
-                }
-            }, 1000)
+            const restEndAt = Date.now() + restMins * 60 * 1000
+            if (browser) localStorage.setItem('restEndAt', String(restEndAt))
+            this.startRestCountdown(restEndAt)
         }
+    }
+
+    /** Start or resume a rest countdown from a target end timestamp */
+    private startRestCountdown(restEndAt: number) {
+        this.restSecondsLeft = Math.max(0, Math.ceil((restEndAt - Date.now()) / 1000))
+        if (this.restSecondsLeft <= 0) return
+        this.restInterval = setInterval(() => {
+            this.restSecondsLeft = Math.max(0, Math.ceil((restEndAt - Date.now()) / 1000))
+            if (this.restSecondsLeft <= 0) {
+                if (this.restInterval) { clearInterval(this.restInterval); this.restInterval = null }
+                if (browser) localStorage.removeItem('restEndAt')
+            }
+        }, 1000)
     }
 
     endRest() {
@@ -410,9 +586,20 @@ export class MindDojo {
         this.restReason = null
         this.fatigueResults = []
         this.fatiguePeakAccuracy = 0
-        if (browser) localStorage.setItem('sessionPhase', 'active')
+        if (browser) {
+            localStorage.setItem('sessionPhase', 'active')
+            localStorage.removeItem('restReason')
+            localStorage.removeItem('restEndAt')
+            localStorage.removeItem('sessionCorrect')
+            localStorage.removeItem('sessionErrors')
+            localStorage.removeItem('sessionCombo')
+            localStorage.removeItem('sessionSelfErrors')
+            localStorage.removeItem('sessionTimerErrors')
+        }
         this.sessionCorrect = 0
         this.sessionErrors = 0
+        this.sessionSelfErrors = 0
+        this.sessionTimerErrors = 0
         this.sessionTimeline = []
         this.persistTimeline()
         this.sessionStartTime = Date.now()
@@ -442,9 +629,18 @@ export class MindDojo {
             // Reset session state for a fresh start
             this.sessionCorrect = 0
             this.sessionErrors = 0
+            this.sessionSelfErrors = 0
+            this.sessionTimerErrors = 0
             this.sessionActiveTime = 0
             this.sessionStartTime = now
             this.combo = 0
+            if (browser) {
+                localStorage.removeItem('sessionCorrect')
+                localStorage.removeItem('sessionErrors')
+                localStorage.removeItem('sessionCombo')
+                localStorage.removeItem('sessionSelfErrors')
+                localStorage.removeItem('sessionTimerErrors')
+            }
             this.fatigueResults = []
             this.fatiguePeakAccuracy = 0
             this.restReason = null
@@ -452,7 +648,12 @@ export class MindDojo {
             if (this.sessionPhase === 'rest') {
                 this.clearTimers()
                 this.sessionPhase = 'active'
-                if (browser) localStorage.setItem('sessionPhase', 'active')
+                this.restReason = null
+                if (browser) {
+                    localStorage.setItem('sessionPhase', 'active')
+                    localStorage.removeItem('restReason')
+                    localStorage.removeItem('restEndAt')
+                }
             }
             this.persistTimeline()
         }
@@ -513,16 +714,47 @@ export class MindDojo {
 
 
 
+    /** Cached seen/unseen words for word source modes */
+    private seenWords: Words = []
+    private unseenWords: Words = []
+    private seenWordsLoaded = false
+
+    /** Load seen words from IndexedDB for practice mode */
+    async loadSeenWords() {
+        const saved = await this.database.getAllWords()
+        const seenSet = new Set(saved.filter(w => w.stats.seen > 0).map(w => w.word.word))
+        this.seenWords = this.shuffle(saved.filter(w => w.stats.seen > 0).map(w => w.word))
+        this.unseenWords = this.shuffle(this.words.filter(w => !seenSet.has(w.word)))
+        this.seenWordsLoaded = true
+    }
+
     constructor(words: Words) {
         this.words = this.shuffle(words)
 
         this.database = new SavedWordDB()
         this.loadGameSound()
 
+        // Pre-load seen/unseen words if in those modes
+        if (this.settings.wordSource === 'seen' || this.settings.wordSource === 'unseen') {
+            this.loadSeenWords()
+        }
+
         // Restore auto speed zone on reload
         if (this.settings.autoSpeed && this.settings.autoSpeedBase > 0) {
             this.autoSpeedZone = 'base'
             this.settings.speed = this.settings.autoSpeedBase
+        }
+
+        // Resume rest countdown if we were in rest with a timer
+        if (browser && this.sessionPhase === 'rest') {
+            const restEndAt = parseInt(localStorage.getItem('restEndAt') || '0')
+            if (restEndAt > Date.now()) {
+                this.startRestCountdown(restEndAt)
+            } else if (restEndAt > 0) {
+                // Timer already expired while closed
+                localStorage.removeItem('restEndAt')
+                this.restSecondsLeft = 0
+            }
         }
 
         this.pickNextWord()
@@ -580,7 +812,7 @@ export class MindDojo {
             this.wordTimerDuration = Math.max((max - elapsed) / 1000, 0);
 
             if (this.wordTimerDuration <= 0) {
-                this.handleError();
+                this.handleError('timer');
                 this.timer = null;
             } else {
                 this.timer = requestAnimationFrame(tick);
@@ -613,7 +845,7 @@ export class MindDojo {
         this.wordTimerDuration = totalWait
     }
 
-    private buildTypingFlow(correct: boolean): TypingFlow {
+    private buildTypingFlow(correct: boolean, errorType?: 'self' | 'timer'): TypingFlow {
         const intervals: number[] = []
         const reactionTime = this.keystrokeTimestamps.length > 0
             ? this.keystrokeTimestamps[0] - this.wordShownAt
@@ -640,6 +872,8 @@ export class MindDojo {
             correct,
             speed: this.settings.speed,
             msPerLetter: 1000 / speed,
+            mode: this.settings.franticMode ? 'chaos' : this.settings.displayMode === 'full-word' ? 'full-word' : 'letter-by-letter',
+            ...(!correct && errorType ? { errorType } : {}),
         }
     }
 
@@ -745,12 +979,17 @@ export class MindDojo {
         this.settings.speed = this.getAutoSpeedForZone(this.autoSpeedZone);
     }
 
-    handleError() {
-        const flow = this.currentWord ? this.buildTypingFlow(false) : null
+    handleError(errorType: 'self' | 'timer' = 'self') {
+        if (errorType === 'self') this.sessionSelfErrors++;
+        else this.sessionTimerErrors++;
+        this.lastErrorType = errorType;
+        this.consecutiveErrors++;
+        const flow = this.currentWord ? this.buildTypingFlow(false, errorType) : null
         if (!flow || !isInstantFail(flow)) {
             this.recordAutoSpeedResult(false)
             this.recordFatigueResult(false)
         }
+        if (flow) this.updatePresenceState(flow)
         if (!this.settings.autoSpeed) {
             this.dojoState.progress = Math.max(this.settings.restartLevelOnError ? 0 : this.dojoState.progress - 1, 0)
         }
@@ -781,7 +1020,30 @@ export class MindDojo {
         if (!this.settings.noFeedbackSound) {
             this.playSound(this.gameSound.wrong, 0.2)
         }
-        this.pickNextWord()
+
+        // Breathe delay after error — hide word, stop timer, show animation, then pick next word
+        const delay = this.settings.breatheDelay
+        if (delay > 0 && this.settings.showNewWordOnError) {
+            // Clear the current word so nothing is displayed during breathe
+            this.currentWord = null
+            this.typedWord = ''
+            // Stop the word timer
+            if (this.timer) { cancelAnimationFrame(this.timer); this.timer = null; }
+            // Stop reaction timer
+            if (this.reactionTimer) { cancelAnimationFrame(this.reactionTimer); this.reactionTimer = null; }
+            this.reactionTimeMs = null
+
+            this.breatheActive = true
+            this.breathePromptText = this.pickBreathePrompt()
+            if (this.breatheTimer) clearTimeout(this.breatheTimer)
+            this.breatheTimer = setTimeout(() => {
+                this.breatheActive = false
+                this.breatheTimer = null
+                this.pickNextWord() // word appears here — reaction timer starts fresh
+            }, delay)
+        } else {
+            this.pickNextWord()
+        }
     }
 
     playSound(audio: HTMLAudioElement, start: number = 0.0) {
@@ -828,6 +1090,7 @@ export class MindDojo {
             this.recordFatigueResult(true)
             if (this.currentWord) {
                 const flow = this.buildTypingFlow(true)
+                this.updatePresenceState(flow)
 
                 this.updateWordStatsInDb(this.currentWord.word, (sw) => {
                     sw.stats.correctlyTyped = (sw.stats.correctlyTyped || 0) + 1;
@@ -837,6 +1100,7 @@ export class MindDojo {
 
             // Gamification — combo + XP
             this.combo++
+            this.consecutiveErrors = 0
             this.sessionCorrect++
             this.totalCorrect++
             const successDuration = performance.now() - this.wordShownAt
@@ -895,6 +1159,7 @@ export class MindDojo {
     }
 
     onKeyDown(event: KeyboardEvent): void {
+        if (this.breatheActive) return
         const key = event.key
         if (key !== "Backspace") return
         if (this.holdDelete) return
@@ -905,6 +1170,7 @@ export class MindDojo {
     }
 
     onKeyPress(event: KeyboardEvent): void {
+        if (this.breatheActive) return
         const key = event.key
         event.preventDefault()
         if (this.currentWord?.word.length === this.typedWord.length) return
@@ -1058,7 +1324,14 @@ export class MindDojo {
         }
         const { maxWordLength = 1, minWordLength = 30 } = this.settings
 
-        const tempWords = this.words.filter(w => {
+        // Select word source based on setting
+        let sourceWords = this.words;
+        if (this.seenWordsLoaded) {
+            if (this.settings.wordSource === 'seen' && this.seenWords.length > 0) sourceWords = this.seenWords;
+            else if (this.settings.wordSource === 'unseen' && this.unseenWords.length > 0) sourceWords = this.unseenWords;
+        }
+
+        const tempWords = sourceWords.filter(w => {
             for (const l of this.settings.excludeLetters) {
                 if (w.word.includes(l)) return false
             }

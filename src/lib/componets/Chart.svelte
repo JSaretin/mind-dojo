@@ -51,6 +51,19 @@
 		return { ...opt, series: patched };
 	}
 
+	/** Ensure all dataZoom use ctrl+scroll to zoom, drag to pan */
+	function ensureScrollBehavior(opt: echarts.EChartsOption): echarts.EChartsOption {
+		if (!opt.dataZoom) return opt;
+		const zooms = Array.isArray(opt.dataZoom) ? opt.dataZoom : [opt.dataZoom];
+		opt.dataZoom = zooms.map((dz: any) => {
+			if (dz.type === 'inside') {
+				return { ...dz, zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: true, moveOnMouseMove: false };
+			}
+			return dz;
+		});
+		return opt;
+	}
+
 	$effect(() => {
 		if (!el) return;
 
@@ -62,7 +75,7 @@
 			}
 		}
 
-		const finalOption = applyChartType(option, chartPrefs.type);
+		const finalOption = ensureScrollBehavior(applyChartType(option, chartPrefs.type));
 		chart.setOption(finalOption, true);
 
 		return () => {

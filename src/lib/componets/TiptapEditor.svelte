@@ -2,18 +2,26 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { Editor } from '@tiptap/core';
 	import StarterKit from '@tiptap/starter-kit';
+	import { Markdown } from 'tiptap-markdown';
+	import TaskList from '@tiptap/extension-task-list';
+	import TaskItem from '@tiptap/extension-task-item';
+	import Link from '@tiptap/extension-link';
+	import { Table } from '@tiptap/extension-table';
+	import { TableRow } from '@tiptap/extension-table-row';
+	import { TableCell } from '@tiptap/extension-table-cell';
+	import { TableHeader } from '@tiptap/extension-table-header';
 	import { WikiLink, createWikiLinkConfig, type WikiLinkItem } from '$lib/wikilink';
 
 	let {
 		content = '',
 		placeholder = 'Write your thoughts...',
-		onUpdate = (_html: string) => {},
+		onUpdate = (_md: string) => {},
 		getLinkItems = (_query: string): WikiLinkItem[] | Promise<WikiLinkItem[]> => [],
 		onLinkSelect = (_item: WikiLinkItem) => {},
 	}: {
 		content?: string;
 		placeholder?: string;
-		onUpdate?: (html: string) => void;
+		onUpdate?: (md: string) => void;
 		getLinkItems?: (query: string) => WikiLinkItem[] | Promise<WikiLinkItem[]>;
 		onLinkSelect?: (item: WikiLinkItem) => void;
 	} = $props();
@@ -29,6 +37,21 @@
 				StarterKit.configure({
 					heading: { levels: [1, 2, 3] },
 				}),
+				Markdown.configure({
+					html: true,
+					transformPastedText: true,
+					transformCopiedText: true,
+				}),
+				TaskList,
+				TaskItem.configure({ nested: true }),
+				Link.configure({
+					openOnClick: false,
+					autolink: true,
+				}),
+				Table.configure({ resizable: false }),
+				TableRow,
+				TableCell,
+				TableHeader,
 				WikiLink.configure({
 					suggestion: createWikiLinkConfig(
 						(query) => getLinkItems(query),
@@ -40,13 +63,15 @@
 			editorProps: {
 				attributes: {
 					class: 'prose-editor focus:outline-none min-h-full',
+					spellcheck: 'true',
 				},
 			},
 			onUpdate: ({ editor: e }) => {
-				onUpdate(e.getHTML());
+				// Output markdown via tiptap-markdown
+				const md = (e.storage as any).markdown?.getMarkdown?.() ?? e.getHTML();
+				onUpdate(md);
 			},
 			onTransaction: () => {
-				// Force reactivity
 				editor = editor;
 			},
 		});
@@ -59,12 +84,16 @@
 	// Update content from outside
 	$effect(() => {
 		if (editor && content !== undefined) {
-			const currentContent = editor.getHTML();
-			if (currentContent !== content) {
+			const currentMd = (editor.storage as any).markdown?.getMarkdown?.() ?? editor.getHTML();
+			if (currentMd !== content) {
 				editor.commands.setContent(content || '');
 			}
 		}
 	});
+
+	export function getMarkdown(): string {
+		return (editor?.storage as any)?.markdown?.getMarkdown?.() ?? editor?.getHTML() ?? '';
+	}
 
 	export function getHTML(): string {
 		return editor?.getHTML() || '';
@@ -125,6 +154,12 @@
 			class="rounded px-2 py-0.5 text-xs transition-colors {editor.isActive('orderedList') ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
 		>
 			1.
+		</button>
+		<button
+			onclick={() => editor?.chain().focus().toggleTaskList().run()}
+			class="rounded px-2 py-0.5 text-xs transition-colors {editor.isActive('taskList') ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
+		>
+			[ ]
 		</button>
 		<button
 			onclick={() => editor?.chain().focus().toggleBlockquote().run()}
@@ -219,6 +254,66 @@
 
 	:global(.prose-editor li p) {
 		margin-bottom: 0;
+	}
+
+	/* Task list styling */
+	:global(.prose-editor ul[data-type="taskList"]) {
+		list-style: none;
+		padding-left: 0;
+	}
+
+	:global(.prose-editor ul[data-type="taskList"] li) {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5em;
+	}
+
+	:global(.prose-editor ul[data-type="taskList"] li label) {
+		flex-shrink: 0;
+		margin-top: 0.25em;
+	}
+
+	:global(.prose-editor ul[data-type="taskList"] li label input[type="checkbox"]) {
+		accent-color: var(--theme-accent, #fbbf24);
+		width: 1em;
+		height: 1em;
+		cursor: pointer;
+	}
+
+	:global(.prose-editor ul[data-type="taskList"] li div) {
+		flex: 1;
+	}
+
+	:global(.prose-editor ul[data-type="taskList"] li[data-checked="true"] > div > p) {
+		text-decoration: line-through;
+		color: var(--theme-text-muted, #737373);
+	}
+
+	/* Table styling */
+	:global(.prose-editor table) {
+		border-collapse: collapse;
+		width: 100%;
+		margin: 0.5em 0;
+	}
+
+	:global(.prose-editor th),
+	:global(.prose-editor td) {
+		border: 1px solid var(--theme-border, #333);
+		padding: 0.4em 0.8em;
+		text-align: left;
+	}
+
+	:global(.prose-editor th) {
+		background: var(--theme-surface-hover, #262626);
+		font-weight: 600;
+		color: var(--theme-accent, #fbbf24);
+	}
+
+	/* Link styling */
+	:global(.prose-editor a) {
+		color: var(--theme-accent, #fbbf24);
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 
 	:global(.prose-editor blockquote) {

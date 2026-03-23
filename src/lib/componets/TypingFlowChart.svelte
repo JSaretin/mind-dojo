@@ -17,6 +17,15 @@
 	let view: 'latest' | 'history' | 'insights' = $state(defaultView === 'history' ? 'history' : defaultView === 'insights' ? 'insights' : 'latest');
 	let chartUnit: 'ms' | 'pct' = $state('ms');
 
+	// Reset selected flow when word changes (prevents stale index from previous word)
+	let prevWord = word;
+	$effect(() => {
+		if (word !== prevWord) {
+			selectedFlowIndex = null;
+			prevWord = word;
+		}
+	});
+
 	function getMsPerLetter(flow: TypingFlow): number {
 		if (flow.msPerLetter) return flow.msPerLetter;
 		if (flow.speed) return 1000 / Math.max(flow.speed, 1);
@@ -253,6 +262,36 @@
 		if (!consistency) return null;
 		// CV of 0 = perfect = 100, CV of 1+ = erratic = 0
 		return Math.max(0, Math.round((1 - Math.min(consistency.cv, 1.5) / 1.5) * 100));
+	});
+
+	// Rushed score: percentage of inter-key intervals that are abnormally fast (autopilot)
+	let rushedAutopilotStats = $derived.by(() => {
+		const allIntervals = flows.flatMap(f => {
+			const interKey = getTypingIntervals(f);
+			const avg = interKey.length > 0 ? interKey.reduce((a, b) => a + b, 0) / interKey.length : 0;
+			const stdDev = interKey.length > 1
+				? Math.sqrt(interKey.reduce((s, v) => s + (v - avg) ** 2, 0) / interKey.length)
+				: 0;
+			return interKey.map(v => ({ v, avg, stdDev }));
+		}).filter(d => d.v > 0);
+		if (allIntervals.length < 3) return null;
+
+		// Hesitation: intervals > avg + 0.8*stdDev per flow
+		const hesitations = allIntervals.filter(d => d.v > d.avg + d.stdDev * 0.8).length;
+		// Autopilot (rushed): intervals < avg - 0.5*stdDev AND < avg*0.6 per flow
+		const autopilots = allIntervals.filter(d => d.v < d.avg - d.stdDev * 0.5 && d.v < d.avg * 0.6).length;
+		const total = allIntervals.length;
+
+		const hesitationPct = Math.round((hesitations / total) * 100);
+		const autopilotPct = Math.round((autopilots / total) * 100);
+
+		// Rushed reactions: flows where reactionTime < 150ms and incorrect
+		const rushedFlows = flows.filter(f => {
+			const rt = f.reactionTime !== undefined ? f.reactionTime : (f.letterIntervals[0] || 0);
+			return rt < 150 && !f.correct;
+		}).length;
+
+		return { hesitationPct, autopilotPct, hesitations, autopilots, total, rushedFlows };
 	});
 
 	// Trend: compare first half of attempts to second half
@@ -697,6 +736,40 @@
 								Erratic timing reveals a mind in reaction, not observation. The spikes are where you're caught.
 							{/if}
 						</p>
+					</div>
+				{/if}
+
+				<!-- Rushed & Autopilot -->
+				{#if rushedAutopilotStats}
+					<div class="rounded-lg border border-base-border bg-surface-hover/50 p-3 space-y-2.5">
+						<!-- Hesitation bar -->
+						<div>
+							<div class="mb-1 flex items-center justify-between">
+								<span class="text-[10px] font-bold uppercase tracking-wider text-amber-400">Hesitation</span>
+								<span class="text-sm font-black text-amber-400">{rushedAutopilotStats.hesitationPct}%</span>
+							</div>
+							<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
+								<div class="h-full rounded-full bg-amber-500 transition-all duration-500" style="width: {rushedAutopilotStats.hesitationPct}%;"></div>
+							</div>
+							<p class="mt-1 text-[10px] text-base-text-muted">{rushedAutopilotStats.hesitations} of {rushedAutopilotStats.total} keystrokes were slow — mind freezing on something</p>
+						</div>
+						<!-- Autopilot bar -->
+						<div>
+							<div class="mb-1 flex items-center justify-between">
+								<span class="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Autopilot</span>
+								<span class="text-sm font-black text-cyan-400">{rushedAutopilotStats.autopilotPct}%</span>
+							</div>
+							<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
+								<div class="h-full rounded-full bg-cyan-500 transition-all duration-500" style="width: {rushedAutopilotStats.autopilotPct}%;"></div>
+							</div>
+							<p class="mt-1 text-[10px] text-base-text-muted">{rushedAutopilotStats.autopilots} keystrokes were too fast — typing without seeing</p>
+						</div>
+						<!-- Rushed reactions -->
+						{#if rushedAutopilotStats.rushedFlows > 0}
+							<div class="mt-1 rounded bg-orange-500/10 px-2 py-1.5 text-[10px] text-orange-400">
+								{rushedAutopilotStats.rushedFlows} attempt{rushedAutopilotStats.rushedFlows > 1 ? 's' : ''} failed from rushing (reacted &lt;150ms and missed)
+							</div>
+						{/if}
 					</div>
 				{/if}
 

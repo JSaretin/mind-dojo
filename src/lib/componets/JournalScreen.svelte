@@ -50,8 +50,16 @@
 	let isNewEntry = $state(false);
 	let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-	function stripHtml(html: string): string {
-		return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+	function stripHtml(text: string): string {
+		// Strip HTML tags (legacy entries) and markdown formatting for preview
+		return text
+			.replace(/<[^>]*>/g, '')
+			.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+			.replace(/#{1,3}\s/g, '').replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1')
+			.replace(/~~([^~]+)~~/g, '$1').replace(/`([^`]+)`/g, '$1')
+			.replace(/^\s*[-*+]\s/gm, '').replace(/^\s*\d+\.\s/gm, '')
+			.replace(/^\s*>\s/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+			.trim();
 	}
 
 	function autoSave() {
@@ -265,17 +273,51 @@
 			<!-- Header -->
 			<div class="flex items-center justify-between border-b border-base-border px-4 py-3">
 				<h2 class="text-base font-bold text-accent">Journal</h2>
-				<span class="text-[10px] text-base-text-muted">Esc to close</span>
+				<button
+					onclick={() => (show = false)}
+					class="rounded-lg p-1 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+					aria-label="Close journal"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
 			</div>
 
-			<!-- New entry + search -->
+			<!-- New entry + search + vault -->
 			<div class="space-y-2 border-b border-base-border px-3 py-3">
-				<button
-					onclick={startNewEntry}
-					class="w-full rounded-md bg-accent-muted px-3 py-2 text-sm font-bold text-accent transition-colors hover:bg-accent-muted"
-				>
-					+ New Entry
-				</button>
+				<div class="flex gap-2">
+					<button
+						onclick={startNewEntry}
+						class="flex-1 rounded-md bg-accent-muted px-3 py-2 text-sm font-bold text-accent transition-colors hover:bg-accent-muted"
+					>
+						+ New Entry
+					</button>
+					{#if journal.hasElectron}
+						<button
+							onclick={async () => {
+								if (journal.vaultPath) {
+									journal.clearVaultPath();
+								} else {
+									await journal.pickVaultDirectory();
+								}
+							}}
+							class="rounded-md border px-2 py-2 text-xs transition-colors {journal.vaultPath
+								? 'border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20'
+								: 'border-base-border text-base-text-muted hover:border-accent hover:text-accent'}"
+							title={journal.vaultPath ? `Vault: ${journal.vaultPath} (click to unlink)` : 'Link Obsidian vault'}
+						>
+							<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+							</svg>
+						</button>
+					{/if}
+				</div>
+				{#if journal.vaultPath}
+					<div class="flex items-center gap-1.5 rounded bg-green-500/10 px-2 py-1 text-[10px] text-green-400">
+						<span class="truncate">{journal.vaultPath}</span>
+					</div>
+				{/if}
 				<input
 					type="text"
 					bind:value={searchQuery}

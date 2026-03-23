@@ -21,6 +21,20 @@ export interface TypingFlow {
     correct: boolean;          // whether the word was typed correctly
     speed?: number;            // speed setting when this attempt happened
     msPerLetter?: number;      // allowed ms per letter at this speed (1000 / speed)
+    mode?: 'letter-by-letter' | 'full-word' | 'chaos'; // game mode when this attempt happened
+    errorType?: 'self' | 'timer'; // what caused the error: wrong key (self) or time ran out (timer)
+}
+
+/** Classify error: 'you' (wrong key, rushed, misclick) vs 'game' (timer ran out). */
+export function getErrorType(flow: TypingFlow): 'you' | 'game' | null {
+    if (flow.correct) return null;
+    if (flow.errorType === 'timer') return 'game';
+    if (flow.errorType === 'self') return 'you';
+    // Infer from old data: if duration is close to full time budget, likely timer
+    const budget = (flow.msPerLetter || 500) * (flow.letterIntervals.length || 1);
+    const totalTime = (flow.reactionTime || 0) + (flow.totalDuration || 0);
+    if (totalTime > budget * 0.85) return 'game';
+    return 'you';
 }
 
 export interface SavedWord {
@@ -121,5 +135,12 @@ export interface MindDojoSettings {
     autoSpeed: boolean;      // automatic speed cycling (base/flow/challenge)
     autoSpeedBase: number;   // base speed for auto mode (auto-calibrated)
     autoFatigueRest: boolean; // auto-trigger rest when fatigue detected
+    wordSource: 'dictionary' | 'seen' | 'unseen'; // word list source: full dictionary, previously seen, or never-seen-before
+    breatheDelay: number; // ms to pause after error before next word (0 = off)
+    breathePrompts: boolean; // show philosophy prompts during breathe
+    breathePromptsAlways: boolean; // true = every breathe, false = ~60% random
+    breatheCustomPrompts: string; // user custom prompts, one per line
+    sessionGoalType: 'none' | 'words' | 'accuracy'; // session goal type
+    sessionGoalValue: number; // target: word count or accuracy %
     // focusKeys: FocusKeys
 }

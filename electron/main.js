@@ -1,7 +1,9 @@
-import { app, BrowserWindow, protocol, net } from 'electron';
+import { app, BrowserWindow, protocol, net, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 protocol.registerSchemesAsPrivileged([
 	{
@@ -28,6 +30,7 @@ function createWindow() {
 		webPreferences: {
 			nodeIntegration: false,
 			contextIsolation: true,
+			preload: path.join(__dirname, 'preload.cjs'),
 		},
 	});
 	win.setMenuBarVisibility(false);
@@ -38,6 +41,61 @@ function createWindow() {
 		win.loadURL('app://./');
 	}
 }
+
+// ── IPC Handlers ──
+
+ipcMain.handle('pick-directory', async () => {
+	const result = await dialog.showOpenDialog({
+		properties: ['openDirectory', 'createDirectory'],
+		title: 'Select Journal Vault Directory',
+	});
+	if (result.canceled || result.filePaths.length === 0) return null;
+	return result.filePaths[0];
+});
+
+ipcMain.handle('read-dir', async (_event, dirPath) => {
+	try {
+		const entries = fs.readdirSync(dirPath).filter(f => f.endsWith('.md'));
+		return { ok: true, files: entries };
+	} catch (e) {
+		return { ok: false, error: String(e) };
+	}
+});
+
+ipcMain.handle('read-file', async (_event, filePath) => {
+	try {
+		const content = fs.readFileSync(filePath, 'utf-8');
+		return { ok: true, content };
+	} catch (e) {
+		return { ok: false, error: String(e) };
+	}
+});
+
+ipcMain.handle('write-file', async (_event, filePath, content) => {
+	try {
+		const dir = path.dirname(filePath);
+		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(filePath, content, 'utf-8');
+		return { ok: true };
+	} catch (e) {
+		return { ok: false, error: String(e) };
+	}
+});
+
+ipcMain.handle('delete-file', async (_event, filePath) => {
+	try {
+		if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+		return { ok: true };
+	} catch (e) {
+		return { ok: false, error: String(e) };
+	}
+});
+
+ipcMain.handle('file-exists', async (_event, filePath) => {
+	return fs.existsSync(filePath);
+});
+
+// ── App Lifecycle ──
 
 app.whenReady().then(() => {
 	const buildPath = path.join(app.getAppPath(), 'build');

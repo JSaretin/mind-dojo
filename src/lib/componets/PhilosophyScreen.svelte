@@ -12,7 +12,15 @@
 		<div class="flex w-64 flex-shrink-0 flex-col border-r border-base-border bg-surface">
 			<div class="flex items-center justify-between border-b border-base-border px-4 py-3">
 				<h2 class="text-base font-bold text-accent">Philosophy</h2>
-				<span class="text-[10px] text-base-text-muted">Esc</span>
+				<button
+					onclick={() => (show = false)}
+					class="rounded-lg p-1 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+					aria-label="Close philosophy"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
 			</div>
 			<nav class="flex-1 overflow-y-auto p-3">
 				{#each [

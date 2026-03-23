@@ -23,6 +23,7 @@
 	let showPhilosophy = $state(false);
 	let showJournal = $state(false);
 	let journal = new Journal();
+	if (browser) journal.init();
 
 	// Apply saved theme on load
 	if (browser) applyTheme(loadTheme());
@@ -96,14 +97,6 @@
 	const onkeydown = (e: KeyboardEvent) => {
 		// Intro: any key starts
 		if (appState === 'intro') { startGame(); return; }
-
-		if (e.key === 'Escape') {
-			if (showHowToPlay) { showHowToPlay = false; return; }
-			if (showPhilosophy) { showPhilosophy = false; return; }
-			if (showJournal) { showJournal = false; return; }
-			if (showSetting) { toggleSettingPopup(); return; }
-			if (showWordBank) { showWordBank = false; return; }
-		}
 
 		if (e.ctrlKey || e.metaKey) {
 			if (e.key === 's') { e.preventDefault(); toggleSettingPopup(); return; }
@@ -353,7 +346,7 @@
 							{ key: 'Ctrl+H', desc: 'Open word bank' },
 							{ key: 'Ctrl+J', desc: 'Open journal' },
 							{ key: '? or F1', desc: 'This help screen' },
-							{ key: 'Esc', desc: 'Close any panel' },
+							{ key: 'X button', desc: 'Close any panel' },
 						] as item}
 							<div class="flex items-center gap-3 rounded border border-base-border px-3 py-2">
 								<kbd class="rounded bg-surface-hover px-2 py-0.5 font-mono text-xs text-accent">{item.key}</kbd>
@@ -378,7 +371,7 @@
 			>
 				<h2 class="text-xl font-bold text-accent">Settings</h2>
 				<div class="flex items-center gap-3">
-					<span class="text-xs text-base-text-muted">Ctrl+S or Esc</span>
+					<span class="text-xs text-base-text-muted">Ctrl+S</span>
 					<button
 						onclick={toggleSettingPopup}
 						class="rounded-lg p-2 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
@@ -474,6 +467,20 @@
 					<span class="text-base-text-muted">/</span>
 					<span class="text-red-400">{mindDojo.sessionErrors}</span>
 					<span class="text-base-text-muted">{mindDojo.accuracy}%</span>
+					<!-- Session goal -->
+					{#if mindDojo.settings.sessionGoalType !== 'none'}
+						<span class="text-[10px] {mindDojo.sessionGoalReached ? 'text-green-400 font-bold' : 'text-base-text-muted'}">
+							{mindDojo.sessionGoalProgress}%
+							{mindDojo.settings.sessionGoalType === 'words' ? 'goal' : 'acc goal'}
+						</span>
+					{/if}
+					<!-- Self vs Timer error bar -->
+					{#if mindDojo.sessionSelfErrors + mindDojo.sessionTimerErrors > 0}
+						<div class="flex h-1.5 w-16 overflow-hidden rounded-full" title="Self {mindDojo.sessionSelfErrors} vs Timer {mindDojo.sessionTimerErrors}">
+							<div class="h-full bg-red-500 transition-all duration-300" style="width: {mindDojo.selfErrorPct}%;"></div>
+							<div class="h-full bg-amber-500 transition-all duration-300" style="width: {100 - mindDojo.selfErrorPct}%;"></div>
+						</div>
+					{/if}
 				</div>
 				<FocusTimeline timeline={mindDojo.sessionTimeline} />
 				{#if mindDojo.fatigueWarning}
@@ -501,6 +508,16 @@
 					</span>
 				{/if}
 				<button
+					onclick={toggleWordBank}
+					class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+					title="Word Bank (Ctrl+H)"
+					aria-label="Open word bank"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+					</svg>
+				</button>
+				<button
 					onclick={toggleJournal}
 					class="rounded-lg p-1.5 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
 					title="Journal (Ctrl+J)"
@@ -527,6 +544,16 @@
 			<div class="flex-1"></div>
 			<div class="flex items-center gap-3">
 				<button
+					onclick={toggleWordBank}
+					class="rounded-lg p-1.5 text-base-text-muted/30 transition-colors hover:text-base-text-muted"
+					title="Word Bank (Ctrl+H)"
+					aria-label="Open word bank"
+				>
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+					</svg>
+				</button>
+				<button
 					onclick={toggleJournal}
 					class="rounded-lg p-1.5 text-base-text-muted/30 transition-colors hover:text-base-text-muted"
 					title="Journal (Ctrl+J)"
@@ -552,16 +579,53 @@
 		</div>
 
 		<!-- Game Area -->
-		<div class="relative flex min-h-screen items-center justify-center">
+		<div class="relative flex min-h-screen items-center justify-center" style="cursor: {mindDojo.sessionPhase === 'rest' ? 'auto' : 'none'};">
+			<!-- Breathe pause indicator — Apple Watch style + philosophy prompt -->
+			{#if mindDojo.breatheActive}
+				<div class="pointer-events-none fixed inset-0 z-10 flex flex-col items-center justify-center">
+					<!-- Prompt text — top of center area -->
+					{#if mindDojo.breathePromptText}
+						<div class="mb-8 breathe-prompt-fade">
+							<p class="text-center text-sm font-light tracking-[0.15em] text-base-text-muted/40">{mindDojo.breathePromptText}</p>
+						</div>
+					{/if}
+					<!-- Animation -->
+					<div class="breathe-flower relative h-32 w-32">
+						{#each Array(6) as _, i}
+							<div
+								class="breathe-petal absolute inset-0 rounded-full"
+								style="
+									background: radial-gradient(circle, rgba(34,197,94,0.25) 0%, rgba(6,182,212,0.15) 50%, transparent 70%);
+									transform: rotate({i * 60}deg) translateY(-20%);
+									animation: breathe-petal-expand {1.5 + (i * 0.05)}s ease-in-out infinite;
+									animation-delay: {i * 0.08}s;
+								"
+							></div>
+						{/each}
+						<div class="absolute inset-0 flex items-center justify-center">
+							<div class="breathe-core h-6 w-6 rounded-full bg-gradient-to-br from-green-400/30 to-cyan-400/30 blur-sm"></div>
+						</div>
+					</div>
+				</div>
+			{/if}
+			<!-- Ambient presence indicator — subtle edge glow -->
+			{#if !mindDojo.settings.zenMode && mindDojo.presenceState !== 'present'}
+				<div
+					class="pointer-events-none fixed inset-0 z-10 transition-opacity duration-1000"
+					style="box-shadow: inset 0 0 {mindDojo.presenceState === 'flow' ? '80px' : mindDojo.presenceState === 'spiral' ? '60px' : '40px'} {mindDojo.presenceState === 'flow' ? 'rgba(34,197,94,0.06)' : mindDojo.presenceState === 'spiral' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.04)'};"
+				></div>
+			{/if}
+			{#if mindDojo.currentWord}
 			<div class="relative">
 				<RenderWord
 					settings={mindDojo.settings}
-					word={mindDojo.currentWord!}
+					word={mindDojo.currentWord}
 					typedWord={mindDojo.typedWord}
 					baseStyles={mindDojo.currentWordStyle}
 					wordTransform={mindDojo.wordTransformStyle}
 				/>
 			</div>
+			{/if}
 
 			{#if !mindDojo.settings.hideProgressBar && !mindDojo.settings.zenMode}
 				<div class="absolute right-0 bottom-0 left-0">
@@ -581,6 +645,11 @@
 									Your accuracy dropped <span class="font-bold text-amber-400">{mindDojo.fatiguePeakAccuracy - mindDojo.sessionRollingAccuracy}%</span> below your peak.
 									Take a break — your mind needs rest.
 								</p>
+								{#if mindDojo.restSecondsLeft > 0}
+									<p class="mt-2 font-mono text-lg font-bold text-amber-400">
+										{Math.floor(mindDojo.restSecondsLeft / 60)}:{(mindDojo.restSecondsLeft % 60).toString().padStart(2, '0')}
+									</p>
+								{/if}
 							{:else}
 								<h2 class="mb-1 text-3xl font-black text-accent">Rest</h2>
 								{#if mindDojo.restSecondsLeft > 0}
@@ -591,30 +660,51 @@
 							{/if}
 						</div>
 
-						<!-- Session stats -->
-						<div class="mb-6 flex justify-center gap-6 text-center">
-							<div>
-								<div class="text-2xl font-bold text-green-400">{mindDojo.sessionCorrect}</div>
-								<div class="text-[10px] text-base-text-muted">Correct</div>
+						<!-- Session summary -->
+						<div class="mb-6 grid grid-cols-5 gap-2">
+							<div class="rounded bg-surface/50 px-2 py-2 text-center">
+								<div class="text-xl font-bold text-green-400">{mindDojo.sessionCorrect}</div>
+								<div class="text-[9px] text-base-text-muted">Correct</div>
 							</div>
-							<div>
-								<div class="text-2xl font-bold text-red-400">{mindDojo.sessionErrors}</div>
-								<div class="text-[10px] text-base-text-muted">Errors</div>
+							<div class="rounded bg-surface/50 px-2 py-2 text-center">
+								<div class="text-xl font-bold text-red-400">{mindDojo.sessionErrors}</div>
+								<div class="text-[9px] text-base-text-muted">Errors</div>
 							</div>
-							<div>
-								<div class="text-2xl font-bold text-accent">{mindDojo.accuracy}%</div>
-								<div class="text-[10px] text-base-text-muted">Accuracy</div>
+							<div class="rounded bg-surface/50 px-2 py-2 text-center">
+								<div class="text-xl font-bold text-accent">{mindDojo.accuracy}%</div>
+								<div class="text-[9px] text-base-text-muted">Accuracy</div>
 							</div>
-							<div>
-								<div class="text-2xl font-bold text-cyan-400">{mindDojo.combo}</div>
-								<div class="text-[10px] text-base-text-muted">Best Combo</div>
+							<div class="rounded bg-surface/50 px-2 py-2 text-center">
+								<div class="text-xl font-bold text-cyan-400">{mindDojo.currentStreak > mindDojo.combo ? mindDojo.currentStreak : mindDojo.combo}</div>
+								<div class="text-[9px] text-base-text-muted">Streak</div>
+							</div>
+							<div class="rounded bg-surface/50 px-2 py-2 text-center">
+								<div class="text-xl font-bold text-purple-400">{Math.round((1 - Math.min(mindDojo.presenceState === 'flow' ? 0.05 : 0.15, 1.5) / 1.5) * 100)}</div>
+								<div class="text-[9px] text-base-text-muted">Presence</div>
 							</div>
 						</div>
+
+						<!-- Error source bar -->
+						{#if mindDojo.sessionSelfErrors + mindDojo.sessionTimerErrors > 0}
+							<div class="mb-4">
+								<div class="mb-1 flex justify-between text-[9px]">
+									<span class="text-red-400">You: {mindDojo.sessionSelfErrors}</span>
+									<span class="text-amber-400">Timer: {mindDojo.sessionTimerErrors}</span>
+								</div>
+								<div class="flex h-2 w-full overflow-hidden rounded-full">
+									<div class="h-full bg-red-500 transition-all" style="width: {mindDojo.selfErrorPct}%;"></div>
+									<div class="h-full bg-amber-500 transition-all" style="width: {100 - mindDojo.selfErrorPct}%;"></div>
+								</div>
+								<div class="mt-1 text-center text-[9px] text-base-text-muted">
+									{mindDojo.selfErrorPct > 60 ? 'Most errors are yours — slow down and see each letter' : mindDojo.selfErrorPct < 40 ? 'The timer is pushing you — the speed may be too high' : 'Balanced — both you and the clock need attention'}
+								</div>
+							</div>
+						{/if}
 
 						<!-- Action buttons -->
 						<div class="mb-4 flex justify-center gap-3">
 							<button
-								onclick={() => { showWordBank = true; }}
+								onclick={async () => { await loadSavedWords(); showWordBank = true; }}
 								class="flex items-center gap-2 rounded-lg border border-base-border bg-surface px-5 py-2.5 text-sm font-bold text-base-text transition-colors hover:border-accent hover:text-accent"
 							>
 								<span class="text-base">📊</span> Word Bank
@@ -639,7 +729,7 @@
 						<!-- Continue button -->
 						<div class="text-center">
 							{#if mindDojo!.restSecondsLeft > 0}
-								<p class="text-[10px] text-base-text-muted">Use this time to reflect. The next round starts automatically.</p>
+								<p class="text-[10px] text-base-text-muted">Use this time to reflect. The next round starts when the timer ends.</p>
 							{:else}
 								<button
 									onclick={() => mindDojo!.endRest()}
@@ -663,6 +753,37 @@
 {/if}
 
 <style>
+	/* Breathe prompt fade */
+	.breathe-prompt-fade {
+		animation: breathe-prompt-in 1.2s ease-out forwards;
+	}
+	@keyframes breathe-prompt-in {
+		0% { opacity: 0; transform: translateY(8px); }
+		30% { opacity: 1; transform: translateY(0); }
+		80% { opacity: 1; }
+		100% { opacity: 0.6; }
+	}
+
+	/* Breathe animation — Apple Watch style flower */
+	.breathe-flower {
+		animation: breathe-scale 4s ease-in-out infinite;
+	}
+	@keyframes breathe-scale {
+		0%, 100% { transform: scale(0.5); opacity: 0.4; }
+		50% { transform: scale(1.2); opacity: 1; }
+	}
+	@keyframes breathe-petal-expand {
+		0%, 100% { transform: rotate(var(--r, 0deg)) translateY(-20%) scale(0.6); opacity: 0.3; }
+		50% { transform: rotate(var(--r, 0deg)) translateY(-20%) scale(1); opacity: 0.7; }
+	}
+	.breathe-core {
+		animation: breathe-core-pulse 4s ease-in-out infinite;
+	}
+	@keyframes breathe-core-pulse {
+		0%, 100% { transform: scale(0.8); opacity: 0.3; }
+		50% { transform: scale(1.5); opacity: 0.8; }
+	}
+
 	/* Loading screen */
 	.loading-pulse {
 		animation: pulse-glow 1.5s ease-in-out infinite;

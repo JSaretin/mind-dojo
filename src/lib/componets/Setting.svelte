@@ -9,20 +9,35 @@
 	let mindDojo = $derived(getMindDojo());
 	let currentTheme = $state(loadTheme());
 
-	const displayModes = ['letter-by-letter', 'full-word'] as const;
 	const letterDisplayOptions = ['left-to-right', 'center'] as const;
 	const numberModes = ['smart', 'random'] as const;
 
-	let activeTab: 'core' | 'chaos' | 'style' | 'audio' | 'ui' | 'theme' = $state('core');
+	let activeTab: 'core' | 'audio' | 'ui' | 'theme' = $state('core');
 
 	const tabs = [
 		{ key: 'core' as const, label: 'Core', icon: '&#9889;' },
-		{ key: 'chaos' as const, label: 'Chaos', icon: '&#127918;' },
-		{ key: 'style' as const, label: 'Style', icon: '&#9998;' },
 		{ key: 'audio' as const, label: 'Audio', icon: '&#9835;' },
 		{ key: 'ui' as const, label: 'UI', icon: '&#9881;' },
 		{ key: 'theme' as const, label: 'Theme', icon: '&#9728;' },
 	];
+
+	type GameMode = 'letter-by-letter' | 'full-word' | 'chaos';
+	let gameMode: GameMode = $derived(
+		settings.franticMode ? 'chaos' : settings.displayMode === 'full-word' ? 'full-word' : 'letter-by-letter'
+	);
+
+	function setGameMode(mode: GameMode) {
+		if (mode === 'chaos') {
+			mindDojo.enableChaosMode();
+			settings = mindDojo.settings;
+		} else {
+			if (settings.franticMode) {
+				mindDojo.disableChaosMode();
+				settings = mindDojo.settings;
+			}
+			settings.displayMode = mode === 'full-word' ? 'full-word' : 'letter-by-letter';
+		}
+	}
 </script>
 
 <!-- Tab bar -->
@@ -157,18 +172,136 @@
 			/>
 		</div>
 
-		<!-- Display Mode -->
+		<!-- Game Mode -->
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
-			<span class="mb-3 block text-sm font-bold text-accent">Display Mode</span>
+			<span class="mb-3 block text-sm font-bold text-accent">Game Mode</span>
 			<div class="flex gap-2">
-				{#each displayModes as mode}
+				{#each [
+					{ key: 'letter-by-letter' as GameMode, label: 'Letter by Letter' },
+					{ key: 'full-word' as GameMode, label: 'Full Word' },
+					{ key: 'chaos' as GameMode, label: 'Chaos' },
+				] as mode}
 					<button
-						onclick={() => (settings.displayMode = mode)}
-						class="flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all {settings.displayMode === mode
+						onclick={() => setGameMode(mode.key)}
+						class="flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all {gameMode === mode.key
+							? mode.key === 'chaos'
+								? 'border-red-500 bg-red-500/15 text-red-400'
+								: 'border-accent bg-accent-muted text-accent'
+							: 'border-base-border text-base-text-muted hover:border-accent/50 hover:text-accent'}"
+					>
+						{mode.label}
+					</button>
+				{/each}
+			</div>
+
+			<!-- Letter-by-Letter settings -->
+			{#if gameMode === 'letter-by-letter'}
+				<div class="mt-4 space-y-4 border-t border-base-border pt-4">
+					<div>
+						<span class="mb-2 block text-xs font-bold text-base-text-muted uppercase tracking-wide">Letter Direction</span>
+						<div class="flex gap-2">
+							{#each letterDisplayOptions as dir}
+								<button
+									onclick={() => (settings.letterStyle.letterDisplayDirection = dir)}
+									class="flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all {settings.letterStyle.letterDisplayDirection === dir
+										? 'border-accent bg-accent-muted text-accent'
+										: 'border-base-border text-base-text-muted hover:border-accent/50'}"
+								>
+									{dir === 'left-to-right' ? 'Left to Right' : 'Center'}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<div>
+						<span class="mb-2 block text-xs font-bold text-base-text-muted uppercase tracking-wide">Letter Randomization</span>
+						<div class="grid grid-cols-2 gap-2">
+							{#each [
+								{ label: 'Random size', bind: 'randomSize' },
+								{ label: 'Random weight', bind: 'randomWeight' },
+								{ label: 'Random font', bind: 'randomFont' },
+								{ label: 'Random transform', bind: 'randomTransform' },
+								{ label: 'Random color', bind: 'randomColor' },
+							] as item}
+								<label class="flex cursor-pointer items-center gap-2 rounded-md border border-base-border px-3 py-2 transition-colors hover:border-accent/30 hover:bg-accent-muted">
+									<input
+										type="checkbox"
+										checked={settings.letterStyle[item.bind as keyof typeof settings.letterStyle] as boolean}
+										onchange={(e) => {
+											(settings.letterStyle as any)[item.bind] = (e.target as HTMLInputElement).checked;
+											settings = settings;
+										}}
+										class="accent-accent"
+									/>
+									<span class="text-xs text-base-text">{item.label}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Chaos settings -->
+			{#if gameMode === 'chaos'}
+				<div class="mt-4 space-y-3 border-t border-red-500/20 pt-4">
+					<p class="text-xs text-red-300">Settings mutate randomly every word. Choose what changes:</p>
+					<div class="grid grid-cols-2 gap-2">
+						{#each [
+							{ label: 'Display mode', bind: 'shouldChangeDisplayMode' },
+							{ label: 'Letter style', bind: 'shouldChangeLetterStyle' },
+							{ label: 'Progress bar', bind: 'shouldChangeProgressBarVisibility' },
+							{ label: 'Timer', bind: 'shouldChangeTimerVisibility' },
+							{ label: 'Restart on error', bind: 'shouldChangeRestartOnError' },
+							{ label: 'Word position', bind: 'shouldChangeRandomWordPosition' },
+							{ label: 'Hide typed', bind: 'shouldChangeHideTypedLetter' },
+							{ label: 'Word length', bind: 'shouldChangeWordLength' },
+						] as item}
+							<label class="flex cursor-pointer items-center gap-2 rounded-md border border-base-border px-3 py-2 transition-colors hover:border-red-500/30 hover:bg-red-500/5">
+								<input
+									type="checkbox"
+									checked={settings.franticSettings[item.bind as keyof typeof settings.franticSettings]}
+									onchange={(e) => {
+										(settings.franticSettings as any)[item.bind] = (e.target as HTMLInputElement).checked;
+										settings = settings;
+									}}
+									class="accent-red-500"
+								/>
+								<span class="text-xs text-base-text">{item.label}</span>
+							</label>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Shared: uppercase toggle -->
+			<div class="mt-4 border-t border-base-border pt-3">
+				<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+					<input type="checkbox" bind:checked={settings.displayLetterInUpperCase} class="accent-accent" />
+					<span class="text-sm text-base-text">Display letters in uppercase</span>
+				</label>
+			</div>
+		</div>
+
+		<!-- Word Source -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Word Source</span>
+			<div class="flex gap-2">
+				{#each [
+					{ key: 'dictionary' as const, label: 'All', desc: 'Full dictionary' },
+					{ key: 'seen' as const, label: 'Seen', desc: 'Typed before' },
+					{ key: 'unseen' as const, label: 'New', desc: 'Never typed' },
+				] as src}
+					<button
+						onclick={() => {
+							settings.wordSource = src.key;
+							if (src.key === 'seen' || src.key === 'unseen') mindDojo.loadSeenWords();
+						}}
+						class="flex-1 rounded-md border px-3 py-2 text-left transition-all {settings.wordSource === src.key
 							? 'border-accent bg-accent-muted text-accent'
 							: 'border-base-border text-base-text-muted hover:border-accent/50 hover:text-accent'}"
 					>
-						{mode === 'letter-by-letter' ? 'Letter by Letter' : 'Full Word'}
+						<span class="block text-sm font-medium">{src.label}</span>
+						<span class="block text-xs text-base-text-muted">{src.desc}</span>
 					</button>
 				{/each}
 			</div>
@@ -250,123 +383,6 @@
 					</button>
 				{/each}
 			</div>
-		</div>
-
-	<!-- CHAOS TAB -->
-	{:else if activeTab === 'chaos'}
-		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
-			<label class="flex cursor-pointer items-center gap-3">
-				<input type="checkbox" checked={settings.franticMode} onchange={(e) => {
-					const checked = (e.target as HTMLInputElement).checked;
-					if (checked) {
-						mindDojo.enableChaosMode();
-						settings = mindDojo.settings;
-					} else {
-						mindDojo.disableChaosMode();
-						settings = mindDojo.settings;
-					}
-				}} class="h-5 w-5 accent-red-500" />
-				<div>
-					<span class="text-sm font-bold text-red-400">Enable Chaos Mode</span>
-					<p class="text-xs text-base-text-muted">Randomly mutates settings every word</p>
-				</div>
-			</label>
-		</div>
-
-		{#if settings.franticMode}
-			<div class="rounded-lg border border-red-500/20 bg-red-500/5 p-4">
-				<span class="mb-3 block text-sm font-bold text-red-300">Chaos Parameters</span>
-				<div class="grid grid-cols-2 gap-2">
-					{#each [
-						{ label: 'Display mode', bind: 'shouldChangeDisplayMode' },
-						{ label: 'Letter style', bind: 'shouldChangeLetterStyle' },
-						{ label: 'Progress bar', bind: 'shouldChangeProgressBarVisibility' },
-						{ label: 'Timer', bind: 'shouldChangeTimerVisibility' },
-						{ label: 'Restart on error', bind: 'shouldChangeRestartOnError' },
-						{ label: 'Word position', bind: 'shouldChangeRandomWordPosition' },
-						{ label: 'Hide typed', bind: 'shouldChangeHideTypedLetter' },
-						{ label: 'Word length', bind: 'shouldChangeWordLength' },
-					] as item}
-						<label class="flex cursor-pointer items-center gap-2 rounded-md border border-base-border px-3 py-2 transition-colors hover:border-red-500/30 hover:bg-red-500/5">
-							<input
-								type="checkbox"
-								checked={settings.franticSettings[item.bind as keyof typeof settings.franticSettings]}
-								onchange={(e) => {
-									(settings.franticSettings as any)[item.bind] = (e.target as HTMLInputElement).checked;
-									settings = settings;
-								}}
-								class="accent-red-500"
-							/>
-							<span class="text-xs text-base-text">{item.label}</span>
-						</label>
-					{/each}
-				</div>
-			</div>
-		{:else}
-			<div class="flex flex-col items-center justify-center rounded-lg border border-dashed border-base-border py-12 text-center">
-				<span class="mb-2 text-4xl">&#127918;</span>
-				<p class="text-sm text-base-text-muted">Enable Chaos Mode to unlock random mutations</p>
-				<p class="text-xs text-base-text-muted">Every word changes the rules</p>
-			</div>
-		{/if}
-
-	<!-- STYLE TAB -->
-	{:else if activeTab === 'style'}
-		{#if settings.displayMode === 'letter-by-letter'}
-			<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
-				<span class="mb-3 block text-sm font-bold text-accent">Letter Randomization</span>
-				<div class="grid grid-cols-2 gap-2">
-					{#each [
-						{ label: 'Random size', bind: 'randomSize' },
-						{ label: 'Random weight', bind: 'randomWeight' },
-						{ label: 'Random font', bind: 'randomFont' },
-						{ label: 'Random transform', bind: 'randomTransform' },
-						{ label: 'Random color', bind: 'randomColor' },
-					] as item}
-						<label class="flex cursor-pointer items-center gap-2 rounded-md border border-base-border px-3 py-2 transition-colors hover:border-accent/30 hover:bg-accent-muted">
-							<input
-								type="checkbox"
-								checked={settings.letterStyle[item.bind as keyof typeof settings.letterStyle] as boolean}
-								onchange={(e) => {
-									(settings.letterStyle as any)[item.bind] = (e.target as HTMLInputElement).checked;
-									settings = settings;
-								}}
-								class="accent-accent"
-							/>
-							<span class="text-xs text-base-text">{item.label}</span>
-						</label>
-					{/each}
-				</div>
-			</div>
-
-			<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
-				<span class="mb-3 block text-sm font-bold text-accent">Letter Direction</span>
-				<div class="flex gap-2">
-					{#each letterDisplayOptions as dir}
-						<button
-							onclick={() => (settings.letterStyle.letterDisplayDirection = dir)}
-							class="flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all {settings.letterStyle.letterDisplayDirection === dir
-								? 'border-accent bg-accent-muted text-accent'
-								: 'border-base-border text-base-text-muted hover:border-accent/50'}"
-						>
-							{dir === 'left-to-right' ? 'Left to Right' : 'Center'}
-						</button>
-					{/each}
-				</div>
-			</div>
-		{:else}
-			<div class="flex flex-col items-center justify-center rounded-lg border border-dashed border-base-border py-12 text-center">
-				<span class="mb-2 text-4xl">&#9998;</span>
-				<p class="text-sm text-base-text-muted">Switch to Letter-by-Letter mode</p>
-				<p class="text-xs text-base-text-muted">to unlock letter styling options</p>
-			</div>
-		{/if}
-
-		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
-			<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
-				<input type="checkbox" bind:checked={settings.displayLetterInUpperCase} class="accent-accent" />
-				<span class="text-sm text-base-text">Display letters in uppercase</span>
-			</label>
 		</div>
 
 	<!-- AUDIO TAB -->
@@ -515,6 +531,91 @@
 					<span class="text-sm text-base-text">Toggle restart-on-error each level</span>
 				</label>
 			</div>
+		</div>
+
+		<!-- Session Goal -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<span class="mb-3 block text-sm font-bold text-accent">Session Goal</span>
+			<div class="flex gap-2 mb-3">
+				{#each [
+					{ key: 'none' as const, label: 'None' },
+					{ key: 'words' as const, label: 'Word Count' },
+					{ key: 'accuracy' as const, label: 'Accuracy' },
+				] as goal}
+					<button
+						onclick={() => (settings.sessionGoalType = goal.key)}
+						class="flex-1 rounded-md border px-2 py-1.5 text-sm font-medium transition-all {settings.sessionGoalType === goal.key
+							? 'border-accent bg-accent-muted text-accent'
+							: 'border-base-border text-base-text-muted hover:border-accent/50'}"
+					>
+						{goal.label}
+					</button>
+				{/each}
+			</div>
+			{#if settings.sessionGoalType === 'words'}
+				<div class="flex items-center gap-3">
+					<input
+						type="number" min="10" max="500" step="10"
+						bind:value={settings.sessionGoalValue}
+						class="w-20 rounded-md border border-base-border bg-surface px-2 py-1.5 font-mono text-sm text-base-text focus:border-accent focus:outline-none"
+					/>
+					<span class="text-sm text-base-text-muted">words per session</span>
+				</div>
+			{:else if settings.sessionGoalType === 'accuracy'}
+				<div class="flex items-center gap-3">
+					<input
+						type="number" min="40" max="100" step="5"
+						bind:value={settings.sessionGoalValue}
+						class="w-20 rounded-md border border-base-border bg-surface px-2 py-1.5 font-mono text-sm text-base-text focus:border-accent focus:outline-none"
+					/>
+					<span class="text-sm text-base-text-muted">% accuracy target (after 10+ words)</span>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Breathe Delay -->
+		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">
+			<div class="mb-2 flex items-center justify-between">
+				<span class="text-sm font-bold text-accent">Breathe Pause</span>
+				<span class="font-mono text-sm text-base-text">
+					{settings.breatheDelay > 0 ? `${(settings.breatheDelay / 1000).toFixed(1)}s` : 'Off'}
+				</span>
+			</div>
+			<input
+				type="range" min="0" max="5000" step="100"
+				bind:value={settings.breatheDelay}
+				class="w-full accent-accent"
+			/>
+			<p class="mt-1 text-[10px] text-base-text-muted">
+				{settings.breatheDelay > 0
+					? `After an error, pause ${(settings.breatheDelay / 1000).toFixed(1)}s before the next word. A moment to reset.`
+					: 'No pause after errors. Next word appears immediately.'}
+			</p>
+
+			{#if settings.breatheDelay > 0}
+				<div class="mt-3 space-y-2 border-t border-base-border pt-3">
+					<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-hover/50">
+						<input type="checkbox" bind:checked={settings.breathePrompts} class="accent-accent" />
+						<span class="text-sm text-base-text">Show philosophy prompts</span>
+					</label>
+					{#if settings.breathePrompts}
+						<label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 pl-8 transition-colors hover:bg-surface-hover/50">
+							<input type="checkbox" bind:checked={settings.breathePromptsAlways} class="accent-accent" />
+							<span class="text-sm text-base-text">Show on every error</span>
+							<span class="text-xs text-base-text-muted">{settings.breathePromptsAlways ? '' : '(60% random)'}</span>
+						</label>
+						<div class="pl-2">
+							<span class="mb-1 block text-xs text-base-text-muted">Custom prompts (one per line, max 8 words each)</span>
+							<textarea
+								bind:value={settings.breatheCustomPrompts}
+								placeholder="The letter is still there.&#10;Begin again.&#10;This is where you choose."
+								rows="3"
+								class="w-full rounded-md border border-base-border bg-surface px-3 py-2 text-sm text-base-text placeholder:text-base-text-muted/50 focus:border-accent focus:outline-none"
+							></textarea>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 
 		<div class="rounded-lg border border-base-border bg-surface-hover/50 p-4">

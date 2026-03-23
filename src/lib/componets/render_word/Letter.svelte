@@ -46,7 +46,8 @@
 		// Letter not yet typed
 		if (!typedLetter) {
 			if (isFullWord) {
-				return { cls: baseClass, inline: `color: var(--theme-letter-untyped, #404040);` };
+				// Remaining letters: visible but subdued so you can see what's ahead
+				return { cls: baseClass, inline: `color: var(--theme-letter-untyped, #6b7280);` };
 			}
 			return { cls: `${baseClass} opacity-0`, inline: '' };
 		}
@@ -54,7 +55,10 @@
 		// Letter has been typed
 		const isCorrect = typedLetter === letter;
 		let visibility = 'opacity-40';
-		if (settings.hideTypedLetter && !isFullWord) {
+		if (isFullWord) {
+			// Full-word mode: typed letters fade out so focus stays on the current letter
+			visibility = 'opacity-20';
+		} else if (settings.hideTypedLetter) {
 			visibility = 'opacity-0';
 		}
 		if (!isCorrect) {

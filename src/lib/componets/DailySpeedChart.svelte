@@ -14,7 +14,7 @@
 
 	let showChart = $state(true);
 	let selectedDate: string | null = $state(null);
-	let breakdownTab: 'speed' | 'length' = $state('length');
+	let breakdownTab: 'speed' | 'length' | 'patterns' = $state('length');
 	let chartMode: 'speed' | 'accuracy' | 'volume' = $state('speed');
 
 	interface DayStats {
@@ -203,6 +203,34 @@
 	let totalCorrect = $derived(dailyStats.reduce((s, d) => s + d.correctCount, 0));
 	let totalPracticeTime = $derived(dailyStats.reduce((s, d) => s + d.totalPracticeMs, 0));
 	let overallAccuracy = $derived(totalWords > 0 ? Math.round((totalCorrect / totalWords) * 100) : 0);
+
+	// Week-over-week comparison
+	let weekComparison = $derived.by(() => {
+		if (dailyStats.length < 2) return null;
+		const today = new Date();
+		const thisWeekStart = new Date(today); thisWeekStart.setDate(today.getDate() - 6); thisWeekStart.setHours(0, 0, 0, 0);
+		const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+		const thisWeek = dailyStats.filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt >= thisWeekStart; });
+		const lastWeek = dailyStats.filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt >= lastWeekStart && dt < thisWeekStart; });
+
+		if (thisWeek.length === 0) return null;
+
+		const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+		const twAcc = avg(thisWeek.map(d => d.accuracy));
+		const lwAcc = lastWeek.length > 0 ? avg(lastWeek.map(d => d.accuracy)) : null;
+		const twWords = thisWeek.reduce((s, d) => s + d.wordCount, 0);
+		const lwWords = lastWeek.reduce((s, d) => s + d.wordCount, 0);
+		const twDays = thisWeek.length;
+		const lwDays = lastWeek.length;
+
+		return {
+			thisWeek: { accuracy: Math.round(twAcc), words: twWords, days: twDays },
+			lastWeek: lwAcc !== null ? { accuracy: Math.round(lwAcc), words: lwWords, days: lwDays } : null,
+			accDelta: lwAcc !== null ? Math.round(twAcc - lwAcc) : null,
+			wordsDelta: lwWords > 0 ? Math.round(((twWords - lwWords) / lwWords) * 100) : null,
+		};
+	});
 
 	let speedZoneAccuracy = $derived.by(() => {
 		const zones = new Map<number, { correct: number; total: number }>();
@@ -481,6 +509,114 @@
 
 	let chartOption = $derived(buildChartOption());
 
+	// ── CROSS-SESSION PATTERNS ──
+	let crossSessionPatterns = $derived.by(() => {
+		// Gather all flows across all days with timestamps
+		const allFlows: { word: string; correct: boolean; speed: number; reaction: number; mode: string; timestamp: number; wordLen: number; seen: number; intervals: number[] }[] = [];
+		for (const w of words) {
+			if (!w.typingFlows) continue;
+			for (const f of w.typingFlows) {
+				if (isInstantFail(f)) continue;
+				allFlows.push({
+					word: w.word.word,
+					correct: f.correct,
+					speed: f.speed || 0,
+					reaction: f.reactionTime || 0,
+					mode: f.mode || 'letter-by-letter',
+					timestamp: f.timestamp,
+					wordLen: w.word.word.length,
+					seen: w.stats.seen,
+					intervals: f.letterIntervals.slice(1).filter(v => v > 0),
+				});
+			}
+		}
+		allFlows.sort((a, b) => a.timestamp - b.timestamp);
+		if (allFlows.length < 20) return null;
+
+		// Find flow streaks (5+ correct)
+		let flowSpeeds: number[] = [], flowReactions: number[] = [], flowPositions: number[] = [], flowHours: number[] = [], flowModes: string[] = [];
+		let spiralSpeeds: number[] = [], spiralReactions: number[] = [], spiralPositions: number[] = [], spiralHours: number[] = [];
+		let streakStart = -1, pos = 0;
+
+		// Words that always fail (3+ attempts, 0 correct)
+		const nemesisWords: { word: string; attempts: number }[] = [];
+		for (const w of words) {
+			const attempts = w.stats.correctlyTyped + w.stats.wronglyTyped;
+			if (attempts >= 3 && w.stats.correctlyTyped === 0) {
+				nemesisWords.push({ word: w.word.word, attempts });
+			}
+		}
+		nemesisWords.sort((a, b) => b.attempts - a.attempts);
+
+		for (let i = 0; i < allFlows.length; i++) {
+			pos++;
+			// Reset position on 5min gap
+			if (i > 0 && allFlows[i].timestamp - allFlows[i-1].timestamp > 300000) pos = 1;
+
+			if (allFlows[i].correct) {
+				if (streakStart < 0) streakStart = i;
+			} else {
+				if (streakStart >= 0 && i - streakStart >= 5) {
+					// Record flow fingerprint
+					for (let j = streakStart; j < i; j++) {
+						flowSpeeds.push(allFlows[j].speed);
+						flowReactions.push(allFlows[j].reaction);
+						flowHours.push(new Date(allFlows[j].timestamp).getHours());
+						flowModes.push(allFlows[j].mode);
+					}
+					flowPositions.push(pos - (i - streakStart));
+				}
+				streakStart = -1;
+
+				// Check for spiral (3 errors in 5 words)
+				let errCount = 0;
+				for (let j = i; j < Math.min(i + 5, allFlows.length); j++) {
+					if (!allFlows[j].correct) errCount++;
+				}
+				if (errCount >= 3) {
+					spiralSpeeds.push(allFlows[i].speed);
+					spiralReactions.push(i + 1 < allFlows.length ? allFlows[i+1].reaction : 0);
+					spiralPositions.push(pos);
+					spiralHours.push(new Date(allFlows[i].timestamp).getHours());
+				}
+			}
+		}
+
+		const avg = (a: number[]) => a.length > 0 ? Math.round(a.reduce((s, v) => s + v, 0) / a.length) : 0;
+		const avgF = (a: number[]) => a.length > 0 ? Math.round(a.reduce((s, v) => s + v, 0) / a.length * 100) / 100 : 0;
+		const modeCount = (a: string[]) => {
+			const counts = new Map<string, number>();
+			for (const m of a) counts.set(m, (counts.get(m) || 0) + 1);
+			return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'letter-by-letter';
+		};
+		const peakHour = (a: number[]) => {
+			if (a.length === 0) return null;
+			const counts = new Map<number, number>();
+			for (const h of a) counts.set(h, (counts.get(h) || 0) + 1);
+			const peak = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+			return peak ? `${peak[0]}:00` : null;
+		};
+
+		return {
+			flow: {
+				avgSpeed: avgF(flowSpeeds),
+				avgReaction: avg(flowReactions),
+				avgPosition: avg(flowPositions),
+				peakHour: peakHour(flowHours),
+				dominantMode: modeCount(flowModes),
+				totalWords: flowSpeeds.length,
+			},
+			spiral: {
+				avgSpeed: avgF(spiralSpeeds),
+				avgPostReaction: avg(spiralReactions),
+				avgPosition: avg(spiralPositions),
+				peakHour: peakHour(spiralHours),
+				count: spiralSpeeds.length,
+			},
+			nemesisWords: nemesisWords.slice(0, 10),
+		};
+	});
+
 	function onChartClick(params: any) {
 		const idx = params.dataIndex;
 		if (idx != null && dailyStats[idx]) {
@@ -516,6 +652,27 @@
 				</div>
 			{/if}
 		</div>
+
+		<!-- Week comparison -->
+		{#if weekComparison}
+			<div class="flex items-center gap-3 rounded-lg border border-base-border bg-surface-hover/30 px-3 py-2 text-[10px]">
+				<span class="font-bold text-base-text-muted">This week</span>
+				<span class="{weekComparison.thisWeek.accuracy >= 60 ? 'text-green-400' : 'text-amber-400'} font-bold">{weekComparison.thisWeek.accuracy}%</span>
+				<span class="text-cyan-400">{weekComparison.thisWeek.words}w</span>
+				<span class="text-base-text-muted">{weekComparison.thisWeek.days}d</span>
+				{#if weekComparison.lastWeek}
+					<span class="text-base-text-muted">vs</span>
+					<span class="font-bold text-base-text-muted">Last week</span>
+					<span class="text-base-text-muted">{weekComparison.lastWeek.accuracy}%</span>
+					<span class="text-base-text-muted">{weekComparison.lastWeek.words}w</span>
+					{#if weekComparison.accDelta !== null}
+						<span class="font-bold {weekComparison.accDelta >= 0 ? 'text-green-400' : 'text-red-400'}">
+							{weekComparison.accDelta >= 0 ? '+' : ''}{weekComparison.accDelta}pp
+						</span>
+					{/if}
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Today highlight -->
 		{#if todayStats}
@@ -554,6 +711,14 @@
 								By Speed
 							</button>
 						{/if}
+						{#if crossSessionPatterns}
+							<button
+								onclick={() => { breakdownTab = 'patterns'; }}
+								class="rounded px-2 py-0.5 text-[10px] font-medium {breakdownTab === 'patterns' ? 'bg-accent-muted text-accent' : 'text-base-text-muted hover:text-base-text'}"
+							>
+								Patterns
+							</button>
+						{/if}
 					</div>
 				</div>
 				<div class="space-y-1">
@@ -568,7 +733,7 @@
 								<span class="w-10 text-right text-base-text-muted">{bucket.total}w</span>
 							</div>
 						{/each}
-					{:else}
+					{:else if breakdownTab === 'speed'}
 						{#each speedZoneAccuracy as zone}
 							<div class="flex items-center gap-2 text-[10px]">
 								<span class="w-10 text-right font-mono text-base-text-muted">{zone.speed.toFixed(2)}x</span>
@@ -579,6 +744,62 @@
 								<span class="w-10 text-right text-base-text-muted">{zone.total}w</span>
 							</div>
 						{/each}
+					{:else if breakdownTab === 'patterns' && crossSessionPatterns}
+						<div class="space-y-2.5">
+							<!-- Flow vs Spiral comparison -->
+							<div class="grid grid-cols-2 gap-2">
+								<div class="rounded bg-green-500/5 border border-green-500/20 px-2.5 py-2">
+									<div class="text-[10px] font-bold text-green-400 uppercase tracking-wider mb-1.5">Flow conditions</div>
+									<div class="space-y-1 text-[10px]">
+										<div><span class="text-base-text-muted">Speed:</span> <span class="text-green-400">{crossSessionPatterns.flow.avgSpeed}x</span></div>
+										<div><span class="text-base-text-muted">React:</span> <span class="text-green-400">{crossSessionPatterns.flow.avgReaction}ms</span></div>
+										<div><span class="text-base-text-muted">Position:</span> <span class="text-green-400">#{crossSessionPatterns.flow.avgPosition}</span></div>
+										{#if crossSessionPatterns.flow.peakHour}
+											<div><span class="text-base-text-muted">Best hour:</span> <span class="text-green-400">{crossSessionPatterns.flow.peakHour}</span></div>
+										{/if}
+										<div><span class="text-base-text-muted">Mode:</span> <span class="text-green-400">{crossSessionPatterns.flow.dominantMode === 'letter-by-letter' ? 'Letter' : crossSessionPatterns.flow.dominantMode === 'full-word' ? 'Full Word' : 'Chaos'}</span></div>
+										<div><span class="text-base-text-muted">Total:</span> <span class="text-green-400">{crossSessionPatterns.flow.totalWords}w</span></div>
+									</div>
+								</div>
+								<div class="rounded bg-red-500/5 border border-red-500/20 px-2.5 py-2">
+									<div class="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-1.5">Spiral conditions</div>
+									<div class="space-y-1 text-[10px]">
+										<div><span class="text-base-text-muted">Speed:</span> <span class="text-red-400">{crossSessionPatterns.spiral.avgSpeed}x</span></div>
+										<div><span class="text-base-text-muted">Post-err react:</span> <span class="text-red-400">{crossSessionPatterns.spiral.avgPostReaction}ms</span></div>
+										<div><span class="text-base-text-muted">Position:</span> <span class="text-red-400">#{crossSessionPatterns.spiral.avgPosition}</span></div>
+										{#if crossSessionPatterns.spiral.peakHour}
+											<div><span class="text-base-text-muted">Worst hour:</span> <span class="text-red-400">{crossSessionPatterns.spiral.peakHour}</span></div>
+										{/if}
+										<div><span class="text-base-text-muted">Count:</span> <span class="text-red-400">{crossSessionPatterns.spiral.count} spirals</span></div>
+									</div>
+								</div>
+							</div>
+
+							<!-- Nemesis words -->
+							{#if crossSessionPatterns.nemesisWords.length > 0}
+								<div>
+									<div class="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">Words that always break you</div>
+									<div class="flex flex-wrap gap-1">
+										{#each crossSessionPatterns.nemesisWords as nw}
+											<span class="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400">{nw.word} <span class="text-base-text-muted">({nw.attempts}x)</span></span>
+										{/each}
+									</div>
+								</div>
+							{/if}
+
+							<!-- Insight text -->
+							<div class="text-[10px] text-base-text-muted leading-relaxed space-y-1">
+								{#if crossSessionPatterns.flow.avgSpeed > 0 && crossSessionPatterns.spiral.avgSpeed > crossSessionPatterns.flow.avgSpeed}
+									<p>Flow at <span class="text-green-400 font-bold">{crossSessionPatterns.flow.avgSpeed}x</span>, spirals at <span class="text-red-400 font-bold">{crossSessionPatterns.spiral.avgSpeed}x</span> — the speed bump triggers fear.</p>
+								{/if}
+								{#if crossSessionPatterns.flow.avgPosition > 0 && crossSessionPatterns.spiral.avgPosition > crossSessionPatterns.flow.avgPosition}
+									<p>Flow around word <span class="text-green-400 font-bold">#{crossSessionPatterns.flow.avgPosition}</span>, spirals around <span class="text-red-400 font-bold">#{crossSessionPatterns.spiral.avgPosition}</span>.</p>
+								{/if}
+								{#if crossSessionPatterns.spiral.avgPostReaction > 0 && crossSessionPatterns.spiral.avgPostReaction < 200}
+									<p>After errors you rush (<span class="text-orange-400 font-bold">{crossSessionPatterns.spiral.avgPostReaction}ms</span>) — pause before the next letter.</p>
+								{/if}
+							</div>
+						</div>
 					{/if}
 				</div>
 			</div>

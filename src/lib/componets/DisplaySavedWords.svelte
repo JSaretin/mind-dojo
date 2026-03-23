@@ -19,6 +19,8 @@
 	let selectedWord: SavedWord | null = $state(null);
 	let collapsedRightWords: Set<string> = $state(new Set());
 	let rightTab: 'overview' | 'words' | 'insights' = $state('overview');
+	let showCenter = $state(true);
+	let showRight = $state(true);
 
 	// Progressive loading
 	const PAGE_SIZE = 50;
@@ -262,15 +264,42 @@
 	}
 </script>
 
-<div class="fixed inset-0 z-50 flex bg-base">
+<div class="fixed inset-0 z-50 grid grid-rows-[1fr_auto] bg-base">
+	<div class="flex min-h-0 overflow-hidden">
 	<!-- LEFT: word list -->
 	<div class="flex w-80 flex-shrink-0 flex-col border-r border-base-border">
 		<div class="space-y-2 border-b border-base-border bg-surface px-3 py-3">
 			<div class="flex items-center justify-between">
-				<h2 class="text-sm font-bold text-accent">Word Bank</h2>
-				<div class="flex items-center gap-2">
-					<span class="text-[10px] text-base-text-muted">{filteredWords.length} words</span>
-					<span class="text-[10px] text-base-text-muted">Esc</span>
+				<h2 class="text-base font-bold text-accent">Word Bank</h2>
+				<div class="flex items-center gap-1.5">
+					<span class="text-xs text-base-text-muted">{filteredWords.length}</span>
+					<button
+						onclick={() => { showCenter = !showCenter; }}
+						class="rounded p-1 text-[10px] transition-colors {showCenter ? 'text-accent' : 'text-base-text-muted hover:text-accent'}"
+						title="Toggle word detail"
+					>
+						<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+						</svg>
+					</button>
+					<button
+						onclick={() => { showRight = !showRight; }}
+						class="rounded p-1 text-[10px] transition-colors {showRight ? 'text-accent' : 'text-base-text-muted hover:text-accent'}"
+						title="Toggle charts"
+					>
+						<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+						</svg>
+					</button>
+					<button
+						onclick={() => (showWordBank = false)}
+						class="rounded-lg p-1 text-base-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+						aria-label="Close word bank"
+					>
+						<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
 				</div>
 			</div>
 
@@ -292,7 +321,7 @@
 				] as btn}
 					<button
 						onclick={() => (activeFilter = btn.key as typeof activeFilter)}
-						class="rounded-full px-2.5 py-0.5 text-[10px] font-medium transition-all {activeFilter === btn.key
+						class="rounded-full px-2.5 py-1 text-xs font-medium transition-all {activeFilter === btn.key
 							? btn.active
 							: btn.inactive}"
 					>
@@ -301,7 +330,7 @@
 				{/each}
 			</div>
 			<div class="flex items-center gap-0.5">
-				<span class="mr-1 text-[9px] text-base-text-muted">Sort:</span>
+				<span class="mr-1 text-xs text-base-text-muted">Sort:</span>
 				{#each [
 					{ key: 'as-typed', label: 'Recent' },
 					{ key: 'error-rate', label: 'Errors' },
@@ -310,7 +339,7 @@
 				] as btn}
 					<button
 						onclick={() => (sortMode = btn.key as typeof sortMode)}
-						class="px-1.5 py-0.5 text-[10px] transition-colors {sortMode === btn.key
+						class="px-1.5 py-0.5 text-xs transition-colors {sortMode === btn.key
 							? 'text-accent border-b border-accent'
 							: 'text-base-text-muted hover:text-base-text'}"
 					>
@@ -334,6 +363,7 @@
 					{@const dotColor = attempts < 2 ? '' : rate === 0 ? 'bg-green-400' : rate > 0.5 ? 'bg-red-400' : 'bg-amber-400'}
 					<button
 						onclick={() => selectWord(word)}
+						title="{word.word.word} — {accuracy.toFixed(0)}% accuracy, {attempts} attempts, {word.stats.seen} seen{word.word.meanings?.[0]?.[1] ? '\n' + word.word.meanings[0][1].slice(0, 80) : ''}"
 						class="flex w-full items-center gap-1.5 border-b border-base-border/50 pl-1 pr-3 py-2 text-left transition-colors {isSelected ? 'bg-accent-muted' : 'hover:bg-surface-hover/50'}"
 					>
 						<!-- Status dot -->
@@ -345,14 +375,14 @@
 									<span class="flex-shrink-0 text-[10px] text-yellow-400">★</span>
 								{/if}
 							</div>
-							<div class="text-[10px] text-base-text-muted truncate">{word.word.meanings?.[0]?.[1]?.slice(0, 30) || ''}</div>
+							<div class="text-xs text-base-text-muted truncate">{word.word.meanings?.[0]?.[1]?.slice(0, 30) || ''}</div>
 						</div>
-						<div class="flex flex-shrink-0 items-center gap-1.5 text-[10px]">
+						<div class="flex flex-shrink-0 items-center gap-1.5 text-xs">
 							<!-- Mini accuracy bar -->
-							<div class="w-10 h-1.5 rounded-full bg-red-500/30 overflow-hidden" title="{accuracy.toFixed(0)}% accuracy">
+							<div class="w-12 h-1.5 rounded-full bg-red-500/30 overflow-hidden" title="{accuracy.toFixed(0)}% accuracy">
 								<div class="h-full rounded-full {accuracy === 100 ? 'bg-green-400' : accuracy >= 50 ? 'bg-amber-400' : 'bg-red-400'}" style="width: {accuracy}%"></div>
 							</div>
-							<span class="font-mono text-base-text-muted w-4 text-right">{attempts}</span>
+							<span class="font-mono text-base-text-muted w-5 text-right">{attempts}</span>
 						</div>
 					</button>
 				{/each}
@@ -364,7 +394,8 @@
 	</div>
 
 	<!-- CENTER: word detail -->
-	<div class="flex max-w-[850px] flex-1 flex-col border-r border-base-border overflow-y-auto">
+	{#if showCenter}
+	<div class="flex {showRight ? 'max-w-[850px]' : ''} flex-1 flex-col border-r border-base-border overflow-y-auto">
 		{#if selectedWord}
 			{@const sw = selectedWord}
 			{@const rate = errorRate(sw)}
@@ -411,7 +442,7 @@
 					<div class="flex gap-6">
 						{#if sw.word.synonyms?.length > 0}
 							<div class="flex-1">
-								<h3 class="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-green-500">Synonyms</h3>
+								<h3 class="mb-1.5 text-xs font-bold uppercase tracking-wide text-green-500">Synonyms</h3>
 								<div class="flex flex-wrap gap-1">
 									{#each sw.word.synonyms as syn}
 										<span class="rounded bg-green-500/10 px-2 py-0.5 text-xs text-green-400">{syn}</span>
@@ -421,7 +452,7 @@
 						{/if}
 						{#if sw.word.antonyms?.length > 0}
 							<div class="flex-1">
-								<h3 class="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-red-500">Antonyms</h3>
+								<h3 class="mb-1.5 text-xs font-bold uppercase tracking-wide text-red-500">Antonyms</h3>
 								<div class="flex flex-wrap gap-1">
 									{#each sw.word.antonyms as ant}
 										<span class="rounded bg-red-500/10 px-2 py-0.5 text-xs text-red-400">{ant}</span>
@@ -432,12 +463,12 @@
 					</div>
 				{/if}
 
-				<div class="flex items-center gap-4 rounded-lg bg-surface/50 px-4 py-2.5">
-					<span class="text-xs text-base-text-muted">Stats</span>
+				<div class="flex items-center gap-4 rounded-lg bg-surface/50 px-4 py-3">
+					<span class="text-sm text-base-text-muted">Stats</span>
 					<span class="font-mono text-sm font-bold {rate >= 0.4 ? 'text-red-400' : rate >= 0.2 ? 'text-accent' : 'text-green-400'}">{(rate * 100).toFixed(0)}% err</span>
-					<span class="font-mono text-sm text-green-400">{sw.stats.correctlyTyped} <span class="text-[10px] text-base-text-muted">correct</span></span>
-					<span class="font-mono text-sm text-red-400">{sw.stats.wronglyTyped} <span class="text-[10px] text-base-text-muted">wrong</span></span>
-					<span class="font-mono text-sm text-base-text-muted">{sw.stats.seen} <span class="text-[10px] text-base-text-muted">seen</span></span>
+					<span class="font-mono text-sm text-green-400">{sw.stats.correctlyTyped} <span class="text-xs text-base-text-muted">correct</span></span>
+					<span class="font-mono text-sm text-red-400">{sw.stats.wronglyTyped} <span class="text-xs text-base-text-muted">wrong</span></span>
+					<span class="font-mono text-sm text-base-text-muted">{sw.stats.seen} <span class="text-xs text-base-text-muted">seen</span></span>
 				</div>
 
 				{#if sw.typingFlows?.length > 0}
@@ -447,13 +478,13 @@
 				{/if}
 
 				<div>
-					<h3 class="mb-2 text-xs font-bold uppercase tracking-wide text-base-text-muted">Note</h3>
+					<h3 class="mb-2 text-sm font-bold uppercase tracking-wide text-base-text-muted">Note</h3>
 					{#if sw.jounal?.description}
 						<p class="text-sm leading-relaxed text-base-text">{sw.jounal.description}</p>
 						{#if sw.jounal.tag?.length > 0}
 							<div class="mt-2 flex flex-wrap gap-1">
 								{#each sw.jounal.tag as tag}
-									<span class="text-[10px] text-accent">#{tag}</span>
+									<span class="text-xs text-accent">#{tag}</span>
 								{/each}
 							</div>
 						{/if}
@@ -469,9 +500,11 @@
 			</div>
 		{/if}
 	</div>
+	{/if}
 
 	<!-- RIGHT: tabbed sidebar -->
-	<div class="flex flex-1 flex-col bg-surface">
+	{#if showRight}
+	<div class="flex min-w-0 flex-1 flex-col bg-surface overflow-hidden">
 		<!-- Tabs + chart type toggle -->
 		<div class="flex items-center border-b border-base-border">
 			<div class="flex flex-1">
@@ -482,7 +515,7 @@
 				] as tab}
 					<button
 						onclick={() => { rightTab = tab.key as typeof rightTab; }}
-						class="flex-1 px-2 py-2 text-[11px] font-medium transition-colors {rightTab === tab.key
+						class="flex-1 px-2 py-2.5 text-sm font-medium transition-colors {rightTab === tab.key
 							? 'border-b-2 border-accent text-accent'
 							: 'text-base-text-muted hover:text-base-text'}"
 					>
@@ -512,8 +545,8 @@
 			{:else if rightTab === 'words'}
 				<div class="border-b border-base-border px-3 py-2">
 					<div class="flex items-center justify-between">
-						<h3 class="text-[10px] font-bold uppercase tracking-wide text-base-text-muted">Recent Words</h3>
-						<span class="text-[9px] text-base-text-muted">{recentWords.length} words</span>
+						<h3 class="text-xs font-bold uppercase tracking-wide text-base-text-muted">Recent Words</h3>
+						<span class="text-xs text-base-text-muted">{recentWords.length} words</span>
 					</div>
 				</div>
 
@@ -526,9 +559,9 @@
 						>
 							<div class="min-w-0">
 								<span class="text-sm font-bold text-accent">{word.word.word}</span>
-								<span class="ml-1.5 text-[9px] text-base-text-muted">{timeAgo(word.stats.lastSeen)}</span>
+								<span class="ml-1.5 text-xs text-base-text-muted">{timeAgo(word.stats.lastSeen)}</span>
 							</div>
-							<div class="flex items-center gap-2 text-[10px]">
+							<div class="flex items-center gap-2 text-xs">
 								<span class="text-green-500">{word.stats.correctlyTyped}</span>
 								<span class="text-base-text-muted">/</span>
 								<span class="text-red-500">{word.stats.wronglyTyped}</span>
@@ -560,34 +593,37 @@
 		</div>
 
 		<div class="border-t border-base-border px-3 py-2">
-			<div class="flex items-center justify-between text-[10px] text-base-text-muted">
+			<div class="flex items-center justify-between text-xs text-base-text-muted">
 				<span>{words.length} total</span>
 				<span>{words.filter(w => w.stats.starred).length} starred</span>
 				<span class="text-green-400">{words.reduce((s, w) => s + w.stats.correctlyTyped, 0)} correct</span>
 			</div>
 		</div>
 	</div>
+	{/if}
+
+	</div><!-- close inner flex row -->
 
 	<!-- Footer with export/import -->
-	<div class="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between border-t border-base-border bg-surface px-4 py-2">
+	<div class="flex items-center justify-between border-t border-base-border bg-surface px-4 py-2">
 		<div class="flex items-center gap-2">
 			<button
 				onclick={() => showExportDialog = true}
-				class="rounded border border-base-border px-3 py-1 text-[11px] text-base-text-muted transition-colors hover:border-accent hover:text-accent"
+				class="rounded border border-base-border px-3 py-1.5 text-xs text-base-text-muted transition-colors hover:border-accent hover:text-accent"
 			>
 				Export
 			</button>
 			<button
 				onclick={importData}
-				class="rounded border border-base-border px-3 py-1 text-[11px] text-base-text-muted transition-colors hover:border-accent hover:text-accent"
+				class="rounded border border-base-border px-3 py-1.5 text-xs text-base-text-muted transition-colors hover:border-accent hover:text-accent"
 			>
 				Import
 			</button>
 			{#if exportStatus}
-				<span class="text-[11px] text-green-400">{exportStatus}</span>
+				<span class="text-xs text-green-400">{exportStatus}</span>
 			{/if}
 		</div>
-		<div class="text-[10px] text-base-text-muted">
+		<div class="text-xs text-base-text-muted">
 			{words.length} words &middot; {words.reduce((s, w) => s + (w.typingFlows?.length || 0), 0)} typing flows
 		</div>
 	</div>
