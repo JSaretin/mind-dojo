@@ -146,7 +146,7 @@
 		homeReplayLetterIdx = 0;
 
 		const speedFactor = homeReplaySpeed;
-		const reaction = rf.flow.reactionTime || 500;
+		const reaction = Math.min(rf.flow.reactionTime || 500, 2000);
 		let cumulative = reaction / speedFactor;
 
 		homeReplayTimers.push(setTimeout(() => { homeReplayLetterIdx = 1; }, cumulative));
@@ -703,9 +703,13 @@
 					{/if}
 					<!-- Self vs Timer error bar -->
 					{#if mindDojo.sessionSelfErrors + mindDojo.sessionTimerErrors > 0}
-						<div class="flex h-1.5 w-16 overflow-hidden rounded-full" title="Self {mindDojo.sessionSelfErrors} vs Timer {mindDojo.sessionTimerErrors}">
-							<div class="h-full bg-red-500 transition-all duration-300" style="width: {mindDojo.selfErrorPct}%;"></div>
-							<div class="h-full bg-amber-500 transition-all duration-300" style="width: {100 - mindDojo.selfErrorPct}%;"></div>
+						<div class="flex items-center gap-1.5">
+							<span class="text-[10px] text-red-400">{mindDojo.sessionSelfErrors}</span>
+							<div class="flex h-1.5 w-16 overflow-hidden rounded-full" title="You {mindDojo.sessionSelfErrors} vs Game {mindDojo.sessionTimerErrors}">
+								<div class="h-full bg-red-500 transition-all duration-300" style="width: {mindDojo.selfErrorPct}%;"></div>
+								<div class="h-full bg-amber-500 transition-all duration-300" style="width: {100 - mindDojo.selfErrorPct}%;"></div>
+							</div>
+							<span class="text-[10px] text-amber-400">{mindDojo.sessionTimerErrors}</span>
 						</div>
 					{/if}
 				</div>
@@ -941,7 +945,7 @@
 						{/if}
 
 						<!-- Action buttons -->
-						<div class="mb-4 flex justify-center gap-3">
+						<div class="mb-4 flex flex-wrap justify-center gap-3">
 							<button
 								onclick={async () => { await loadSavedWords(); showWordBank = true; }}
 								class="flex items-center gap-2 rounded-lg border border-base-border bg-surface px-5 py-2.5 text-sm font-bold text-base-text transition-colors hover:border-accent hover:text-accent"
@@ -962,6 +966,12 @@
 								class="flex items-center gap-2 rounded-lg border border-base-border bg-surface px-5 py-2.5 text-sm font-bold text-base-text transition-colors hover:border-accent hover:text-accent"
 							>
 								<span class="text-base">📝</span> Journal
+							</button>
+							<button
+								onclick={openHomeReplay}
+								class="flex items-center gap-2 rounded-lg border border-base-border bg-surface px-5 py-2.5 text-sm font-bold text-base-text transition-colors hover:border-accent hover:text-accent"
+							>
+								<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Replay
 							</button>
 						</div>
 
@@ -1055,6 +1065,7 @@
 					<button onclick={() => homeReplayChartType = homeReplayChartType === 'bar' ? 'line' : homeReplayChartType === 'line' ? 'dot' : 'bar'} class="rounded px-1.5 py-0.5 text-[9px] font-mono text-base-text-muted hover:text-accent">{homeReplayChartType}</button>
 				{/if}
 				<span class="mx-0.5 h-4 w-px bg-base-border"></span>
+				<button onclick={() => skipHomeReplayTo(homeReplayWordIdx + 1)} class="rounded px-2 py-0.5 text-[10px] font-bold text-base-text-muted hover:text-accent" title="Skip to next word">Skip</button>
 				<button onclick={toggleHomeReplayPause} class="rounded px-2 py-0.5 text-[10px] font-bold {homeReplayPaused ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}">{homeReplayPaused ? 'Resume' : 'Pause'}</button>
 				<button onclick={closeHomeReplay} class="rounded px-2 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400">Close</button>
 			</div>
@@ -1327,7 +1338,6 @@
 	.flash-rankup {
 		animation: flash-gold 0.6s ease-out;
 	}
-
 	@keyframes flash-red {
 		0% { background: rgba(239, 68, 68, 0.15); }
 		100% { background: transparent; }

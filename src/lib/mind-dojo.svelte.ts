@@ -477,7 +477,7 @@ export class MindDojo {
     // Compat getter
     get sessionExpired() { return this.sessionPhase === 'rest' }
     private eventCounter = 0
-    lastEvent: { type: "success" | "error" | "rank-up"; text?: string; id: number } | null = $state(null)
+    lastEvent: { type: "success" | "error" | "rank-up"; text?: string; errorType?: 'self' | 'timer'; id: number } | null = $state(null)
 
     get belt() { return getBelt(this.xp) }
     get nextBelt() { return getNextBelt(this.xp) }
@@ -1018,7 +1018,7 @@ export class MindDojo {
         if (this.isWarmup) {
             this.warmupRemaining--;
             if (!this.settings.noFeedbackSound) this.playSound(this.gameSound.wrong, 0.2)
-            this.lastEvent = { type: "error", id: ++this.eventCounter }
+            this.lastEvent = { type: "error", errorType, id: ++this.eventCounter }
             this.pickNextWord()
             return
         }
@@ -1057,7 +1057,7 @@ export class MindDojo {
         })
         this.persistTimeline()
         this.checkSessionTime(errorDuration)
-        this.lastEvent = { type: "error", id: ++this.eventCounter }
+        this.lastEvent = { type: "error", errorType, id: ++this.eventCounter }
         this.persistProgress()
 
         if (!this.settings.noFeedbackSound) {

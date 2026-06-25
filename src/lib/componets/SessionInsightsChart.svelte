@@ -908,7 +908,7 @@
 		sessionReplayLetterIdx = 0;
 
 		const speedFactor = sessionReplaySpeed;
-		const reaction = flow.reactionTime || 500;
+		const reaction = Math.min(flow.reactionTime || 500, 2000);
 
 		// Show reaction delay then animate letters
 		let cumulative = reaction / speedFactor;
@@ -3066,6 +3066,11 @@
 						title="Show/hide upcoming letters"
 					>Future</button>
 					<span class="mx-1 h-4 w-px bg-base-border"></span>
+					<button
+						onclick={() => { for (const t of sessionReplayTimers) clearTimeout(t); sessionReplayTimers = []; sessionReplayIdx++; if (sessionReplayIdx < sessionReplayFlows.length) playNextWord(); }}
+						class="rounded px-2 py-0.5 text-[10px] font-bold text-base-text-muted hover:text-accent"
+						title="Skip to next word"
+					>Skip</button>
 					<button onclick={toggleSessionReplayPause} class="rounded px-2 py-0.5 text-[10px] font-bold {sessionReplayPaused ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}">
 						{sessionReplayPaused ? 'Resume' : 'Pause'}
 					</button>
